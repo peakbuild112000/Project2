@@ -57,11 +57,16 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
+      # A rerun keeps the artifacts from the previous attempt. Giving each
+      # attempt its own name stops deploy-pages from finding two of them.
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
+          name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
           path: build/web
 
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}

@@ -125,3 +125,13 @@ were fixed. Kept in English like the rest of the documentation.
 - **Fix:** Replaced them with real `Button` nodes that emit `paint_selected`, connected to
   `Main._on_paint_selected()`. Added a white swatch to wipe the paint off.
 - **Status:** Resolved.
+
+## 15. Pages deploy failed after re-running a workflow
+
+- **Symptom:** `actions/deploy-pages@v4` reported `Multiple artifacts named "github-pages"
+  were unexpectedly found for this workflow run. Artifact count is 2.`
+- **Cause:** A manual rerun keeps the Pages artifact uploaded by the previous attempt, so
+  two artifacts shared the default name.
+- **Fix:** The upload and deploy steps now use a unique name based on
+  `${{ github.run_id }}-${{ github.run_attempt }}`.
+- **Status:** Resolved.
