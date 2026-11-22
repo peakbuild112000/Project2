@@ -890,31 +890,31 @@ func _process(delta: float) -> void:
 	# Arrow keys follow the same rule: in PAINT mode they orbit the camera,
 	# outside PAINT mode they turn the player's look direction.
 	if paint_mode:
-		if _keys.get(KEY_LEFT, false):
+		if _key_down(KEY_LEFT):
 			_orbit_yaw += 2.0 * delta
-		if _keys.get(KEY_RIGHT, false):
+		if _key_down(KEY_RIGHT):
 			_orbit_yaw -= 2.0 * delta
-		if _keys.get(KEY_UP, false):
+		if _key_down(KEY_UP):
 			_orbit_pitch = clampf(_orbit_pitch + 1.5 * delta, -0.45, 0.75)
-		if _keys.get(KEY_DOWN, false):
+		if _key_down(KEY_DOWN):
 			_orbit_pitch = clampf(_orbit_pitch - 1.5 * delta, -0.45, 0.75)
 	else:
-		if _keys.get(KEY_LEFT, false):
+		if _key_down(KEY_LEFT):
 			_yaw += 2.0 * delta
-		if _keys.get(KEY_RIGHT, false):
+		if _key_down(KEY_RIGHT):
 			_yaw -= 2.0 * delta
-		if _keys.get(KEY_UP, false):
+		if _key_down(KEY_UP):
 			_pitch = clampf(_pitch + 1.5 * delta, -1.2, 1.2)
-		if _keys.get(KEY_DOWN, false):
+		if _key_down(KEY_DOWN):
 			_pitch = clampf(_pitch - 1.5 * delta, -1.2, 1.2)
 
 	if is_host:
 		if players.has(local_id):
 			var me: Dictionary = players[local_id]
 			me.input = {
-				"fw": 0.0 if frozen else _axis(KEY_W, KEY_S),
-				"sd": 0.0 if frozen else _axis(KEY_D, KEY_A),
-				"sprint": not frozen and _keys.get(KEY_SHIFT, false), "jump": _my_input.jump,
+				"fw": 0.0 if frozen else _fw_axis(),
+				"sd": 0.0 if frozen else _sd_axis(),
+				"sprint": not frozen and _key_down(KEY_SHIFT), "jump": _my_input.jump,
 			}
 			me.yaw = _yaw
 			_my_input.jump = false
@@ -938,9 +938,9 @@ func _process(delta: float) -> void:
 		if _net_clock >= TICK:
 			_net_clock = 0.0
 			Net.send_to_host({
-				"t": "input", "fw": 0.0 if frozen else _axis(KEY_W, KEY_S),
-				"sd": 0.0 if frozen else _axis(KEY_D, KEY_A),
-				"sprint": not frozen and _keys.get(KEY_SHIFT, false),
+				"t": "input", "fw": 0.0 if frozen else _fw_axis(),
+				"sd": 0.0 if frozen else _sd_axis(),
+				"sprint": not frozen and _key_down(KEY_SHIFT),
 				"jump": _my_input.jump, "yaw": _yaw,
 			})
 			_my_input.jump = false
@@ -948,11 +948,28 @@ func _process(delta: float) -> void:
 	_update_views(delta)
 	_update_hud()
 
-func _axis(pos: int, neg: int) -> float:
+func _key_down(code: int) -> bool:
+	# Poll the live keyboard state instead of relying only on _input(). A
+	# focused UI control can swallow key events before the node sees them;
+	# the Input singleton still knows the key is held. Check the physical key
+	# too so AZERTY (ZQSD) and other layouts keep the same WASD positions.
+	if Input.is_key_pressed(code) or Input.is_physical_key_pressed(code):
+		return true
+	return bool(_keys.get(code, false))
+
+func _fw_axis() -> float:
 	var v := 0.0
-	if _keys.get(pos, false):
+	if _key_down(KEY_W) or _key_down(KEY_Z):
 		v += 1.0
-	if _keys.get(neg, false):
+	if _key_down(KEY_S):
+		v -= 1.0
+	return v
+
+func _sd_axis() -> float:
+	var v := 0.0
+	if _key_down(KEY_D):
+		v += 1.0
+	if _key_down(KEY_A) or _key_down(KEY_Q):
 		v -= 1.0
 	return v
 
