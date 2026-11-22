@@ -74,7 +74,9 @@ window sizes.
 ## Multiplayer
 
 **HOST SESSION** opens an authoritative WebSocket server on TCP port `9080`.
-Clients use **JOIN SESSION** with `ws://<HOST_IP>:9080`. Web builds need a
+Clients use **JOIN SESSION** with `ws://<HOST_IP>:9080`. Both actions replace the
+main menu with a dedicated **LOBBY** screen showing the connection status;
+**CANCEL** returns to the menu. Web builds need a
 `wss://` URL (for example through a Cloudflare tunnel) because GitHub Pages uses
 HTTPS. The host presses `Enter` to start. **Only real players are allowed**:
 at least 2 connected players are required, and no bots are ever spawned.

@@ -14,9 +14,11 @@ const DESIGN_H := 720.0
 var root: Control
 var surface: Control
 var menu_group: Control
+var lobby_group: Control
 var hud_group: Control
 var result_group: Control
 var menu_info: Label
+var lobby_label: Label
 var phase_label: Label
 var time_label: Label
 var role_label: Label
@@ -56,6 +58,7 @@ func _ready() -> void:
 	call_deferred("_fit")
 
 	_build_menu()
+	_build_lobby()
 	_build_hud()
 	_build_result()
 	show_menu()
@@ -155,6 +158,14 @@ func _build_menu() -> void:
 	menu_info = _label(bg, "", -300, 232, 600, 100, 0.5, 0.5, 16, Color(0.70, 0.90, 0.80))
 	menu_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
+func _build_lobby() -> void:
+	lobby_group = _make_group()
+	var bg := _panel(lobby_group, -360, -170, 720, 340, 0.5, 0.5, Color(0.02, 0.03, 0.08, 0.94))
+	_label(bg, "LOBBY", -300, -125, 600, 44, 0.5, 0.5, 30, Color(0.10, 0.85, 0.95))
+	lobby_label = _label(bg, "", -300, -65, 600, 150, 0.5, 0.5, 18, Color(0.75, 0.82, 0.95))
+	lobby_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_button(bg, "CANCEL", "leave", 0, -100, 112, 200, 44, 0.5, 0.5)
+
 func _build_hud() -> void:
 	hud_group = _make_group()
 	var top := _panel(hud_group, -430, -345, 860, 52, 0.5, 0.5)
@@ -224,26 +235,35 @@ func set_pipette(on: bool) -> void:
 
 func show_menu() -> void:
 	menu_group.visible = true
+	lobby_group.visible = false
 	hud_group.visible = false
 	result_group.visible = false
 
 func show_lobby(text: String) -> void:
-	show_menu()
-	menu_info.text = text
+	menu_group.visible = false
+	lobby_group.visible = true
+	hud_group.visible = false
+	result_group.visible = false
+	lobby_label.text = text
 
 func show_game() -> void:
 	menu_group.visible = false
+	lobby_group.visible = false
 	hud_group.visible = true
 	result_group.visible = false
 
 func show_result(text: String) -> void:
 	menu_group.visible = false
+	lobby_group.visible = false
 	hud_group.visible = true
 	result_group.visible = true
 	result_label.text = text
 
 func set_menu_info(text: String) -> void:
-	menu_info.text = text
+	if lobby_group != null and lobby_group.visible:
+		lobby_label.text = text
+	else:
+		menu_info.text = text
 
 func update_hud(info: Dictionary) -> void:
 	phase_label.text = str(info.get("phase", ""))
