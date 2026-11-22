@@ -1,9 +1,15 @@
 extends CanvasLayer
 ## All interface elements, assembled in code so the project has no UI files.
+## The whole UI lives on a fixed 1280x720 design surface that is centred and
+## scaled to the current viewport, so any fixed resolution works correctly.
 
 signal ui(action: String, value: int)
 
+const DESIGN_W := 1280.0
+const DESIGN_H := 720.0
+
 var root: Control
+var surface: Control
 var menu_group: Control
 var hud_group: Control
 var result_group: Control
@@ -26,10 +32,38 @@ func _ready() -> void:
 	root = Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(root)
+
+	surface = Control.new()
+	surface.anchor_left = 0.5
+	surface.anchor_top = 0.5
+	surface.anchor_right = 0.5
+	surface.anchor_bottom = 0.5
+	surface.offset_left = -DESIGN_W * 0.5
+	surface.offset_top = -DESIGN_H * 0.5
+	surface.offset_right = DESIGN_W * 0.5
+	surface.offset_bottom = DESIGN_H * 0.5
+	surface.pivot_offset = Vector2(DESIGN_W * 0.5, DESIGN_H * 0.5)
+	root.add_child(surface)
+
+	if not get_viewport().size_changed.is_connected(_fit):
+		get_viewport().size_changed.connect(_fit)
+	call_deferred("_fit")
+
 	_build_menu()
 	_build_hud()
 	_build_result()
 	show_menu()
+
+## Scale the design surface to fit any resolution while keeping the aspect ratio.
+func _fit() -> void:
+	if surface == null:
+		return
+	var vp: Vector2 = get_viewport().get_visible_rect().size
+	if vp.x <= 0.0 or vp.y <= 0.0:
+		return
+	var s: float = minf(vp.x / DESIGN_W, vp.y / DESIGN_H)
+	s = maxf(s, 0.2)
+	surface.scale = Vector2(s, s)
 
 func _place(c: Control, x: float, y: float, w: float, h: float, ax: float = 0.0, ay: float = 0.0) -> void:
 	c.anchor_left = ax
@@ -83,7 +117,7 @@ func _on_pressed(action: String, value: int) -> void:
 
 func _build_menu() -> void:
 	menu_group = Control.new()
-	root.add_child(menu_group)
+	surface.add_child(menu_group)
 	var bg := _panel(menu_group, -640, -360, 1280, 720, 0.5, 0.5, Color(0.01, 0.02, 0.06, 0.95))
 	_label(bg, "CHROMA CHAMELEON", -300, -292, 600, 58, 0.5, 0.5, 42, Color(0.10, 0.85, 0.95))
 	_label(bg, "Paint yourself. Blend in. Survive the seeker.", -300, -238, 600, 30, 0.5, 0.5, 18, Color(0.75, 0.82, 0.95))
@@ -99,7 +133,7 @@ func _build_menu() -> void:
 
 func _build_hud() -> void:
 	hud_group = Control.new()
-	root.add_child(hud_group)
+	surface.add_child(hud_group)
 	var top := _panel(hud_group, -430, -345, 860, 52, 0.5, 0.5)
 	phase_label = _label(top, "", 14, 8, 260, 34, 0.0, 0.0, 20, Color(0.10, 0.85, 0.95))
 	time_label = _label(top, "", 300, 6, 120, 38, 0.0, 0.0, 26, Color.WHITE)
@@ -121,7 +155,7 @@ func _build_hud() -> void:
 
 func _build_result() -> void:
 	result_group = Control.new()
-	root.add_child(result_group)
+	surface.add_child(result_group)
 	var bg := _panel(result_group, -330, -150, 660, 300, 0.5, 0.5, Color(0.02, 0.03, 0.09, 0.94))
 	result_label = _label(bg, "", -290, -120, 580, 230, 0.5, 0.5, 22, Color.WHITE)
 	result_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
