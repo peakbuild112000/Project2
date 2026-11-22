@@ -190,7 +190,7 @@ func _create_player(id: int, pname: String, is_bot: bool) -> void:
 	col.shape = cap
 	body.add_child(col)
 	scene_root.add_child(body)
-	var avatar: Dictionary = world.make_avatar(body, Color.WHITE)
+	var avatar: Dictionary = world.make_avatar(body, Color.WHITE, id)
 	avatar.node.visible = true
 	views[id] = {"body": body, "avatar": avatar}
 	players[id] = {
@@ -464,26 +464,47 @@ func _play(kind: String) -> void:
 
 # ---------------------------------------------------------------- painting ----
 
-func _avatar_screen_rect() -> Rect2:
-	if not views.has(local_id):
-		return Rect2()
-	var body: CharacterBody3D = views[local_id].body
-	var pts: Array = [
-		camera.unproject_position(body.position + Vector3(0, 1.95, 0)),
-		camera.unproject_position(body.position + Vector3(0, 0.05, 0)),
-		camera.unproject_position(body.position + Vector3(-0.6, 1.0, 0)),
-		camera.unproject_position(body.position + Vector3(0.6, 1.0, 0)),
-	]
-	var minx := INF
-	var miny := INF
-	var maxx := -INF
-	var maxy := -INF
-	for p in pts:
-		minx = minf(minx, p.x)
-		miny = minf(miny, p.y)
-		maxx = maxf(maxx, p.x)
-		maxy = maxf(maxy, p.y)
-	return Rect2(minx, miny, maxx - minx, maxy - miny)
+func _barycentric(p: Vector3, a: Vector3, b: Vector3, c: Vector3) -> Vector3:
+	var v0 := b - a
+	var v1 := c - a
+	var v2 := p - a
+	var d00 := v0.dot(v0)
+	var d01 := v0.dot(v1)
+	var d11 := v1.dot(v1)
+	var d20 := v2.dot(v0)
+	var d21 := v2.dot(v1)
+	var den := d00 * d11 - d01 * d01
+	if absf(den) < 0.0000001:
+		return Vector3(1, 0, 0)
+	var w1 := (d11 * d20 - d01 * d21) / den
+	var w2 := (d00 * d21 - d01 * d20) / den
+	return Vector3(1.0 - w1 - w2, w1, w2)
+
+## Raycasts the avatar's invisible per-part collider and returns the exact
+## atlas UV under the cursor. Returns (-1,-1) when the click missed the avatar.
+func _avatar_uv_at(pos: Vector2) -> Vector2:
+	var from := camera.project_ray_origin(pos)
+	var dir := camera.project_ray_normal(pos)
+	var q := PhysicsRayQueryParameters3D.create(from, from + dir * 100.0)
+	q.collision_mask = 2
+	var hit := get_viewport().world_3d.direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		return Vector2(-1, -1)
+	var col: Object = hit.collider
+	if not (col is StaticBody3D) or not col.has_meta("owner_id"):
+		return Vector2(-1, -1)
+	if int(col.get_meta("owner_id")) != local_id:
+		return Vector2(-1, -1)
+	var faces: PackedVector3Array = col.get_meta("faces")
+	var face_uvs: PackedVector2Array = col.get_meta("face_uvs")
+	var fi := int(hit.face_index)
+	if fi < 0 or fi * 3 + 2 >= faces.size():
+		return Vector2(-1, -1)
+	var a := faces[fi * 3]
+	var b := faces[fi * 3 + 1]
+	var c := faces[fi * 3 + 2]
+	var w := _barycentric(col.to_local(hit.position), a, b, c)
+	return face_uvs[fi * 3] * w.x + face_uvs[fi * 3 + 1] * w.y + face_uvs[fi * 3 + 2] * w.z
 
 func _apply_stroke(id: int, u: float, v: float, color: Color, size: int) -> void:
 	if not views.has(id):
@@ -549,11 +570,11 @@ func _set_paint_mode(on: bool) -> void:
 func _paint_at(pos: Vector2) -> void:
 	if not running or not views.has(local_id):
 		return
-	var rect := _avatar_screen_rect()
-	if rect.size.x < 8.0 or rect.size.y < 8.0 or not rect.has_point(pos):
+	var uv := _avatar_uv_at(pos)
+	if uv.x < 0.0 or uv.y < 0.0:
 		return
-	var u := clampf((pos.x - rect.position.x) / rect.size.x, 0, 1)
-	var v := clampf(1.0 - (pos.y - rect.position.y) / rect.size.y, 0, 1)
+	var u := clampf(uv.x, 0, 1)
+	var v := clampf(uv.y, 0, 1)
 	_apply_stroke(local_id, u, v, paint_color, brush_size)
 	if is_host:
 		Net.broadcast({"t": "paint_stroke", "id": local_id, "u": u, "v": v,
@@ -589,15 +610,23 @@ func _pipette_at(pos: Vector2) -> void:
 	# fall back to the material colour under the ray.
 	if picked.r < 0.0 or (hud.paint_panel != null and hud.paint_panel.visible and hud.paint_panel.get_global_rect().has_point(pos)):
 		var fallback := Color.WHITE
-		var from := camera.project_ray_origin(pos)
-		var dir := camera.project_ray_normal(pos)
-		var q := PhysicsRayQueryParameters3D.create(from, from + dir * 100.0)
-		var hit := get_viewport().world_3d.direct_space_state.intersect_ray(q)
-		if not hit.is_empty() and hit.collider is StaticBody3D:
-			for c in hit.collider.get_children():
-				if c is MeshInstance3D and c.material_override is StandardMaterial3D:
-					fallback = c.material_override.albedo_color
-					break
+		var uv := _avatar_uv_at(pos)
+		if uv.x >= 0.0 and views.has(local_id):
+			var img: Image = views[local_id].avatar.image
+			fallback = img.get_pixel(
+				int(clampf(uv.x, 0, 1) * float(img.get_width() - 1)),
+				int(clampf(uv.y, 0, 1) * float(img.get_height() - 1)))
+		else:
+			var from := camera.project_ray_origin(pos)
+			var dir := camera.project_ray_normal(pos)
+			var q := PhysicsRayQueryParameters3D.create(from, from + dir * 100.0)
+			q.collision_mask = 1
+			var hit := get_viewport().world_3d.direct_space_state.intersect_ray(q)
+			if not hit.is_empty() and hit.collider is StaticBody3D:
+				for c in hit.collider.get_children():
+					if c is MeshInstance3D and c.material_override is StandardMaterial3D:
+						fallback = c.material_override.albedo_color
+						break
 		picked = fallback
 
 	paint_color = picked
@@ -649,6 +678,7 @@ func _resolve_shot(by_id: int) -> void:
 		var hy := float(me.yaw)
 		dir = Vector3(-sin(hy), 0, -cos(hy))
 	var q := PhysicsRayQueryParameters3D.create(from, from + dir.normalized() * 45.0)
+	q.collision_mask = 1
 	q.exclude = [views[by_id].body.get_rid()]
 	var hit := get_viewport().world_3d.direct_space_state.intersect_ray(q)
 	if hit.is_empty():

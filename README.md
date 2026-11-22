@@ -28,8 +28,10 @@ gagne +1 point. 3 manches, 3 cartes générées de façon déterministe.
 - Choisis une couleur **quelconque** avec le sélecteur HSV/RGB (couleurs
   infinies), ou les raccourcis `1`-`5` pour les couleurs rapides.
 - Choisis la taille de brosse : **Petit / Moyen / Grand**.
-- **Clic gauche + glisser sur ton avatar** pour peindre. Le trait est envoyé aux
-  autres joueurs en réseau.
+- **Clic gauche + glisser sur ton avatar** pour peindre. Le rayon de la souris
+  touche directement le membre visé, et chaque partie du corps possède sa propre
+  zone de texture : le trait apparaît vraiment là où tu cliques. Il est envoyé
+  aux autres joueurs en réseau.
 - **Clic droit + glisser** : fait tourner la caméra orbite, **uniquement** pour le
   hider en mode Paint.
 - La **Pipette** prélève la couleur **telle qu'elle est rendue à l'écran**, donc
