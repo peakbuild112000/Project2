@@ -38,9 +38,10 @@ chronomètre. 3 manches, 3 cartes générées de façon déterministe.
 2. `F5` pour lancer `scenes/Main.tscn`.
 3. Choisir **PRACTICE (BOTS)** pour jouer immédiatement avec 3 bots.
 
-L'interface est dessinée sur une référence 1280×720 puis mise à l'échelle et
-recentrée automatiquement : elle reste correcte quelle que soit la résolution
-fixée dans `project.godot` ou la taille de la fenêtre.
+La résolution de référence du projet est **1354 × 648** (`project.godot`).
+L'interface est dessinée sur une surface 1280 × 720 puis mise à l'échelle et
+recentrée automatiquement : elle reste correcte à cette résolution, ainsi que
+pour toute autre résolution ou taille de fenêtre.
 
 ## Multijoueur
 
