@@ -45,7 +45,7 @@ There are 3 rounds on 3 deterministic generated maps.
 
 | Key | Action |
 | --- | --- |
-| `WASD` | Move |
+| `WASD` | Move (physical keys: `ZQSD` on AZERTY also works) |
 | Arrow keys | Look (orbit the camera in PAINT mode) |
 | `Shift` | Sprint |
 | `Mouse` | Look (cursor captured outside PAINT mode) |

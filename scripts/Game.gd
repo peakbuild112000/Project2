@@ -200,6 +200,11 @@ func _create_player(id: int, pname: String) -> void:
 
 func _capture() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	# A LineEdit or Button can keep keyboard focus after Host/Join is clicked.
+	# Release it so WASD reaches the game instead of being typed into the UI.
+	var focused: Control = get_viewport().gui_get_focus_owner()
+	if focused != null:
+		focused.release_focus()
 	palette_open = false
 	paused = false
 
@@ -954,10 +959,16 @@ func _axis(pos: int, neg: int) -> float:
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey:
 		var k: InputEventKey = event
+		# Store both the layout keycode and the physical key. Physical codes
+		# make WASD work on AZERTY too (ZQSD), for the host and for joiners.
 		_keys[k.keycode] = k.pressed
+		var code: int = k.keycode
+		if k.physical_keycode != KEY_UNKNOWN:
+			_keys[k.physical_keycode] = k.pressed
+			code = k.physical_keycode
 		if not k.pressed or k.echo:
 			return
-		match k.keycode:
+		match code:
 			KEY_1: try_preset_paint(0)
 			KEY_2: try_preset_paint(1)
 			KEY_3: try_preset_paint(2)
