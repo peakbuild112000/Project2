@@ -204,7 +204,7 @@ func _build_hud() -> void:
 		bb.add_theme_stylebox_override("normal", bsb)
 		bb.pressed.connect(_on_brush_pressed.bind(i))
 		brush_buttons.append(bb)
-	_label(paint_panel, "Clique-glisse pour peindre  •  Pipette : prélever une couleur  •  P pour quitter", -305, 42, 610, 24, 0.5, 0.5, 14, Color(0.70, 0.80, 0.95))
+	_label(paint_panel, "Clic gauche glissé : peindre  •  Clic droit glissé : tourner  •  Pipette : couleur rendue (ombres incluses)  •  P : quitter", -305, 42, 610, 24, 0.5, 0.5, 12, Color(0.70, 0.80, 0.95))
 	paint_panel.visible = false
 
 func _build_result() -> void:

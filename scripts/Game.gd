@@ -43,6 +43,7 @@ var paint_color := Color.WHITE
 var brush_size := 20
 var pipette_mode := false
 var _paint_hold := false
+var _orbit_hold := false
 var _spot_cooldown := {}
 var _shoot_cooldown := 0.0
 
@@ -59,9 +60,21 @@ func _ready() -> void:
 
 	scene_root = Node3D.new()
 	add_child(scene_root)
+	var env_node := WorldEnvironment.new()
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.02, 0.03, 0.08)
+	env.ambient_light_color = Color(0.28, 0.34, 0.48)
+	env.ambient_light_energy = 0.45
+	env_node.environment = env
+	scene_root.add_child(env_node)
+
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-52, 38, 0)
 	sun.light_energy = 1.15
+	sun.shadow_enabled = true
+	sun.shadow_bias = 0.025
+	sun.directional_shadow_max_distance = 90.0
 	scene_root.add_child(sun)
 
 	camera = Camera3D.new()
@@ -102,7 +115,7 @@ func _on_ui(action: String, value: int) -> void:
 		"practice": start_offline()
 		"host": start_host()
 		"join": start_client()
-		"help": hud.set_menu_info("HIDERS: press P to enter PAINT mode, pick any colour, choose a brush and drag on your avatar with the mouse. Pipette samples a colour from your suit or the decor. Stand still near matching props to camouflage. SEEKERS: F toggles the flashlight. SEEING a hider gives you +1 point, but you must LEFT CLICK (or E) to SHOOT them and eliminate them.")
+		"help": hud.set_menu_info("HIDERS: you are always in third person. Press P for PAINT mode: left-drag paints your avatar, right-drag rotates the camera, pipette samples a colour. Stand still near matching props to camouflage. SEEKERS: you are in first person. F toggles the flashlight. SEEING a hider gives +1 point, but LEFT CLICK (or E) SHOOTS them to eliminate (+3).")
 		"paint": try_preset_paint(value)
 		"pipette": _toggle_pipette()
 		"leave": leave_match()
@@ -129,6 +142,7 @@ func _cleanup_match() -> void:
 	paint_mode = false
 	pipette_mode = false
 	_paint_hold = false
+	_orbit_hold = false
 	hud.set_paint_mode(false)
 	hud.set_pipette(false)
 	_spot_cooldown.clear()
@@ -177,7 +191,7 @@ func _create_player(id: int, pname: String, is_bot: bool) -> void:
 	body.add_child(col)
 	scene_root.add_child(body)
 	var avatar: Dictionary = world.make_avatar(body, Color.WHITE)
-	avatar.node.visible = (id != local_id)
+	avatar.node.visible = true
 	views[id] = {"body": body, "avatar": avatar}
 	players[id] = {
 		"id": id, "name": pname, "x": body.position.x, "y": body.position.y,
@@ -502,6 +516,9 @@ func _apply_fill(id: int, color: Color) -> void:
 func try_preset_paint(idx: int) -> void:
 	if not running or idx < 0 or idx >= Core.COLORS.size():
 		return
+	if _role_of(local_id) != "HIDER":
+		hud.log_line("Seuls les hiders peuvent peindre.")
+		return
 	var c: Color = Core.COLORS[idx]
 	paint_color = c
 	hud.set_color(c)
@@ -516,11 +533,15 @@ func try_preset_paint(idx: int) -> void:
 func _set_paint_mode(on: bool) -> void:
 	if not running:
 		return
+	if on and _role_of(local_id) != "HIDER":
+		hud.log_line("Le seeker reste en première personne : lui ne peint pas.")
+		return
 	paint_mode = on
 	_paint_hold = false
+	_orbit_hold = false
 	hud.set_paint_mode(on)
 	if views.has(local_id):
-		views[local_id].avatar.node.visible = on
+		views[local_id].avatar.node.visible = _role_of(local_id) == "HIDER"
 	pipette_mode = false
 	hud.set_pipette(false)
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE if on else Input.MOUSE_MODE_CAPTURED)
@@ -541,16 +562,33 @@ func _paint_at(pos: Vector2) -> void:
 		Net.send_to_host({"t": "paint_stroke", "u": u, "v": v,
 			"c": paint_color.to_html(false), "s": brush_size})
 
+## Reads the REAL rendered pixel under the cursor: albedo + lights + shadows.
+## A red prop in a dark corner is therefore sampled as dark red, not bright red.
+func _rendered_color_at(pos: Vector2) -> Color:
+	var tex := get_viewport().get_texture()
+	if tex == null:
+		return Color(-1, -1, -1, 1)
+	var img: Image = tex.get_image()
+	if img == null or img.is_empty():
+		return Color(-1, -1, -1, 1)
+	var size := img.get_size()
+	var vp := get_viewport().get_visible_rect().size
+	if vp.x <= 0.0 or vp.y <= 0.0 or size.x <= 0 or size.y <= 0:
+		return Color(-1, -1, -1, 1)
+	var x := clampi(int(pos.x / vp.x * float(size.x)), 0, size.x - 1)
+	var y := clampi(int(pos.y / vp.y * float(size.y)), 0, size.y - 1)
+	var c := img.get_pixel(x, y)
+	if c.a < 0.01:
+		return Color(-1, -1, -1, 1)
+	return Color(c.r, c.g, c.b, 1.0)
+
 func _pipette_at(pos: Vector2) -> void:
-	var picked := Color.WHITE
-	var rect := _avatar_screen_rect()
-	if rect.size.x >= 8.0 and rect.size.y >= 8.0 and rect.has_point(pos):
-		var av: Dictionary = views[local_id].avatar
-		var img: Image = av.image
-		var u := clampf((pos.x - rect.position.x) / rect.size.x, 0, 1)
-		var v := clampf(1.0 - (pos.y - rect.position.y) / rect.size.y, 0, 1)
-		picked = img.get_pixel(int(u * float(img.get_width() - 1)), int(v * float(img.get_height() - 1)))
-	else:
+	var picked := _rendered_color_at(pos)
+
+	# If the pointer is over the paint panel (or the capture is unavailable),
+	# fall back to the material colour under the ray.
+	if picked.r < 0.0 or (hud.paint_panel != null and hud.paint_panel.visible and hud.paint_panel.get_global_rect().has_point(pos)):
+		var fallback := Color.WHITE
 		var from := camera.project_ray_origin(pos)
 		var dir := camera.project_ray_normal(pos)
 		var q := PhysicsRayQueryParameters3D.create(from, from + dir * 100.0)
@@ -558,14 +596,16 @@ func _pipette_at(pos: Vector2) -> void:
 		if not hit.is_empty() and hit.collider is StaticBody3D:
 			for c in hit.collider.get_children():
 				if c is MeshInstance3D and c.material_override is StandardMaterial3D:
-					picked = c.material_override.albedo_color
+					fallback = c.material_override.albedo_color
 					break
+		picked = fallback
+
 	paint_color = picked
 	hud.set_color(picked)
 	pipette_mode = false
 	hud.set_pipette(false)
-	hud.log_line("Pipette: #%s" % picked.to_html(false))
-	_play("click")
+	hud.log_line("Pipette (lumière/ombre incluse): #%s" % picked.to_html(false))
+	_play("paint")
 
 # ---------------------------------------------------------------- shooting ----
 
@@ -813,6 +853,7 @@ func _update_views(delta: float) -> void:
 		elif not is_host:
 			body.position = body.position.lerp(Vector3(st.x, st.y, st.z), clampf(delta * 12.0, 0, 1))
 		var avatar: Dictionary = v.avatar
+		avatar.node.visible = (id != local_id) or (_role_of(id) == "HIDER")
 		var alpha := 1.0
 		if id != local_id:
 			if local_role == "SEEKER" and _role_of(id) == "HIDER" and not bool(st.seen):
@@ -824,15 +865,19 @@ func _update_views(delta: float) -> void:
 		avatar.mat.albedo_color = Color(1, 1, 1, alpha)
 	if local_id > 0 and views.has(local_id):
 		var b: CharacterBody3D = views[local_id].body
-		if paint_mode:
-			var back := Vector3(sin(_yaw), 0, cos(_yaw)) * 4.2
-			camera.position = b.position + Vector3(0, 2.5, 0) + back
-			camera.look_at(b.position + Vector3(0, 1.0, 0))
+		if local_role == "HIDER":
+			# Hiders always see their own avatar from a third-person camera.
+			var dist := 3.6 if paint_mode else 4.2
+			var cp := clampf(_pitch, -0.45, 0.75)
+			var off := Vector3(sin(_yaw) * cos(cp), sin(cp) + 0.25, cos(_yaw) * cos(cp)) * dist
+			camera.position = b.position + Vector3(0, 1.1, 0) + off
+			camera.look_at(b.position + Vector3(0, 1.1, 0))
 		else:
+			# Seekers stay in first person.
 			camera.position = b.position + Vector3(0, 1.62, 0)
 			camera.rotation = Vector3(_pitch, _yaw, 0)
 		var me: Dictionary = players[local_id]
-		flashlight.visible = bool(me.flash) and local_role == "SEEKER" and not paint_mode
+		flashlight.visible = bool(me.flash) and local_role == "SEEKER"
 
 func _update_hud() -> void:
 	if logic == null or not players.has(local_id):
@@ -873,10 +918,9 @@ func _process(delta: float) -> void:
 	for k in _spot_cooldown.keys():
 		_spot_cooldown[k] = maxf(0.0, float(_spot_cooldown[k]) - delta)
 
-	if paint_mode:
-		_update_views(delta)
-		_update_hud()
-		return
+	# Paint mode keeps the match alive (bots, timers, network) but the painter
+	# stands still so the avatar is easy to hit with the brush.
+	var frozen := paint_mode
 
 	if _keys.get(KEY_LEFT, false):
 		_yaw += 2.0 * delta
@@ -891,8 +935,9 @@ func _process(delta: float) -> void:
 		if players.has(local_id):
 			var me: Dictionary = players[local_id]
 			me.input = {
-				"fw": _axis(KEY_W, KEY_S), "sd": _axis(KEY_D, KEY_A),
-				"sprint": _keys.get(KEY_SHIFT, false), "jump": _my_input.jump,
+				"fw": 0.0 if frozen else _axis(KEY_W, KEY_S),
+				"sd": 0.0 if frozen else _axis(KEY_D, KEY_A),
+				"sprint": not frozen and _keys.get(KEY_SHIFT, false), "jump": _my_input.jump,
 			}
 			me.yaw = _yaw
 			_my_input.jump = false
@@ -916,8 +961,10 @@ func _process(delta: float) -> void:
 		if _net_clock >= TICK:
 			_net_clock = 0.0
 			Net.send_to_host({
-				"t": "input", "fw": _axis(KEY_W, KEY_S), "sd": _axis(KEY_D, KEY_A),
-				"sprint": _keys.get(KEY_SHIFT, false), "jump": _my_input.jump, "yaw": _yaw,
+				"t": "input", "fw": 0.0 if frozen else _axis(KEY_W, KEY_S),
+				"sd": 0.0 if frozen else _axis(KEY_D, KEY_A),
+				"sprint": not frozen and _keys.get(KEY_SHIFT, false),
+				"jump": _my_input.jump, "yaw": _yaw,
 			})
 			_my_input.jump = false
 
@@ -961,9 +1008,14 @@ func _input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion:
 		var m: InputEventMouseMotion = event
 		if running and not paused:
-			if paint_mode and _paint_hold:
-				_paint_at(m.position)
-			elif not paint_mode and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
+			if paint_mode:
+				if _paint_hold:
+					_paint_at(m.position)
+				elif _orbit_hold:
+					# Right-drag orbits the third-person camera in PAINT mode.
+					_yaw -= m.relative.x * 0.006
+					_pitch = clampf(_pitch - m.relative.y * 0.006, -0.45, 0.75)
+			elif Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 				_yaw -= m.relative.x * 0.0026
 				_pitch = clampf(_pitch - m.relative.y * 0.0026, -1.2, 1.2)
 	elif event is InputEventMouseButton:
@@ -980,7 +1032,9 @@ func _input(event: InputEvent) -> void:
 						_paint_at(mb.position)
 				else:
 					_paint_hold = false
-		elif mb.pressed and (mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT):
+			elif mb.button_index == MOUSE_BUTTON_RIGHT:
+				_orbit_hold = mb.pressed
+		elif mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
 			_try_shoot()
 
 func _toggle_pause() -> void:

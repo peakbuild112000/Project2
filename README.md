@@ -21,16 +21,22 @@ gagne +1 point. 3 manches, 3 cartes générées de façon déterministe.
 
 ## Peindre son personnage
 
-- Appuie sur **`P`** : la caméra passe en **troisième personne**, le curseur se
-  débloque et le panneau **PAINT** apparaît.
+- Le **hider est toujours en troisième personne** ; le **seeker reste en
+  première personne**.
+- Appuie sur **`P`** (hider uniquement) : le curseur se débloque et le panneau
+  **PAINT** apparaît.
 - Choisis une couleur **quelconque** avec le sélecteur HSV/RGB (couleurs
   infinies), ou les raccourcis `1`-`5` pour les couleurs rapides.
 - Choisis la taille de brosse : **Petit / Moyen / Grand**.
-- **Clic-glisse sur ton avatar** pour peindre. Le trait est envoyé aux autres
-  joueurs en réseau.
-- La **Pipette** prélève la couleur sous le curseur : sur ton costume ou sur un
-  objet du décor.
-- `P` ou `Échap` pour quitter le mode Paint et reprendre la première personne.
+- **Clic gauche + glisser sur ton avatar** pour peindre. Le trait est envoyé aux
+  autres joueurs en réseau.
+- **Clic droit + glisser** : fait tourner la caméra orbite, **uniquement** pour le
+  hider en mode Paint.
+- La **Pipette** prélève la couleur **telle qu'elle est rendue à l'écran**, donc
+  avec l'éclairage et les ombres : un objet rouge dans un coin sombre donne un
+  rouge sombre, pas un rouge vif. Elle fonctionne sur ton costume comme sur le
+  décor (repli sur la couleur du matériau si la capture n'est pas disponible).
+- `P` ou `Échap` pour quitter le mode Paint.
 
 ## Commandes
 
@@ -39,8 +45,9 @@ gagne +1 point. 3 manches, 3 cartes générées de façon déterministe.
 | `ZQSD` / `WASD` | Se déplacer |
 | `Shift` | Courir |
 | `Souris` | Regarder (curseur capturé hors mode Paint) |
+| `Clic droit + souris` | Tourner la caméra (hider, mode Paint uniquement) |
 | `Flèches` | Regarder au clavier |
-| `P` | Activer / quitter le mode Paint |
+| `P` | Activer / quitter le mode Paint (hider) |
 | `1`-`5` | Couleurs rapides (peinture intégrale) |
 | `F` | Lampe torche (seeker) |
 | `Clic gauche` / `E` | Tirer (seeker) — élimine un hider touché |
