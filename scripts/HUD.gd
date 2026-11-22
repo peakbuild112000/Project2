@@ -65,6 +65,12 @@ func _fit() -> void:
 	s = maxf(s, 0.2)
 	surface.scale = Vector2(s, s)
 
+func _make_group() -> Control:
+	var g := Control.new()
+	g.set_anchors_preset(Control.PRESET_FULL_RECT)
+	surface.add_child(g)
+	return g
+
 func _place(c: Control, x: float, y: float, w: float, h: float, ax: float = 0.0, ay: float = 0.0) -> void:
 	c.anchor_left = ax
 	c.anchor_top = ay
@@ -116,8 +122,7 @@ func _on_pressed(action: String, value: int) -> void:
 	ui.emit(action, value)
 
 func _build_menu() -> void:
-	menu_group = Control.new()
-	surface.add_child(menu_group)
+	menu_group = _make_group()
 	var bg := _panel(menu_group, -640, -360, 1280, 720, 0.5, 0.5, Color(0.01, 0.02, 0.06, 0.95))
 	_label(bg, "CHROMA CHAMELEON", -300, -292, 600, 58, 0.5, 0.5, 42, Color(0.10, 0.85, 0.95))
 	_label(bg, "Paint yourself. Blend in. Survive the seeker.", -300, -238, 600, 30, 0.5, 0.5, 18, Color(0.75, 0.82, 0.95))
@@ -132,8 +137,7 @@ func _build_menu() -> void:
 	menu_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 func _build_hud() -> void:
-	hud_group = Control.new()
-	surface.add_child(hud_group)
+	hud_group = _make_group()
 	var top := _panel(hud_group, -430, -345, 860, 52, 0.5, 0.5)
 	phase_label = _label(top, "", 14, 8, 260, 34, 0.0, 0.0, 20, Color(0.10, 0.85, 0.95))
 	time_label = _label(top, "", 300, 6, 120, 38, 0.0, 0.0, 26, Color.WHITE)
@@ -154,8 +158,7 @@ func _build_hud() -> void:
 		swatches.append(b)
 
 func _build_result() -> void:
-	result_group = Control.new()
-	surface.add_child(result_group)
+	result_group = _make_group()
 	var bg := _panel(result_group, -330, -150, 660, 300, 0.5, 0.5, Color(0.02, 0.03, 0.09, 0.94))
 	result_label = _label(bg, "", -290, -120, 580, 230, 0.5, 0.5, 22, Color.WHITE)
 	result_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
