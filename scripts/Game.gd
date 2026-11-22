@@ -1,5 +1,5 @@
 extends Node
-## Main controller: menus, local input, bots, authoritative match and networking.
+## Main controller: menus, local input, authoritative match and networking.
 
 const World = preload("res://scripts/World.gd")
 const MatchLogic = preload("res://scripts/Match.gd")
@@ -19,7 +19,7 @@ var camera: Camera3D
 var flashlight: SpotLight3D
 var audio: AudioStreamPlayer
 
-var mode := "offline" # offline | host | client
+var mode := "menu" # menu | host | client
 var is_host := true
 var local_id := 1
 var running := false
@@ -45,6 +45,8 @@ var pipette_mode := false
 var _paint_hold := false
 var _orbit_hold := false
 var paint_zoom := 3.6
+var _orbit_yaw := 0.0
+var _orbit_pitch := 0.0
 var _shoot_cooldown := 0.0
 
 func _ready() -> void:
@@ -93,9 +95,7 @@ func _ready() -> void:
 	set_process(true)
 
 	var args: Array = OS.get_cmdline_user_args()
-	if args.has("--auto-practice"):
-		call_deferred("start_offline")
-	elif args.has("--auto-host"):
+	if args.has("--auto-host"):
 		call_deferred("start_host")
 		if args.has("--auto-start"):
 			call_deferred("_begin_host_match")
@@ -112,10 +112,9 @@ func auto_join(url: String) -> void:
 
 func _on_ui(action: String, value: int) -> void:
 	match action:
-		"practice": start_offline()
 		"host": start_host()
 		"join": start_client()
-		"help": hud.set_menu_info("HIDERS: you are always in third person. Press P for PAINT mode: left-drag paints, right-drag rotates the camera and character, mouse wheel zooms, pipette samples a colour. Stand still near matching props to camouflage. SEEKERS: you are in first person. F toggles the flashlight. Spotting or shooting a hider eliminates them instantly.")
+		"help": hud.set_menu_info("HIDERS: you are always in third person. Press P for PAINT mode: left-drag paints, right-drag orbits the camera only (the character does not turn), mouse wheel zooms, pipette samples a colour. Stand still near matching props to camouflage. SEEKERS: you are in first person. F toggles the flashlight. Spotting or shooting a hider eliminates them instantly.")
 		"paint": try_preset_paint(value)
 		"pipette": _toggle_pipette()
 		"leave": leave_match()
@@ -176,7 +175,7 @@ func _setup_world(map: int) -> void:
 	world.build(scene_root, map)
 	map_index = map
 
-func _create_player(id: int, pname: String, is_bot: bool) -> void:
+func _create_player(id: int, pname: String) -> void:
 	if players.has(id):
 		return
 	var body := CharacterBody3D.new()
@@ -195,8 +194,7 @@ func _create_player(id: int, pname: String, is_bot: bool) -> void:
 	players[id] = {
 		"id": id, "name": pname, "x": body.position.x, "y": body.position.y,
 		"z": body.position.z, "yaw": 0.0, "color": Color.WHITE, "flash": false,
-		"camo": 0.0, "seen": false, "was_seen": false, "found": false, "bot": is_bot,
-		"bot_target": null,
+		"camo": 0.0, "seen": false, "was_seen": false, "found": false,
 		"input": {"fw": 0.0, "sd": 0.0, "sprint": false, "jump": false},
 	}
 
@@ -204,25 +202,6 @@ func _capture() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	palette_open = false
 	paused = false
-
-func start_offline() -> void:
-	_cleanup_match()
-	mode = "offline"
-	is_host = true
-	local_id = 1
-	running = true
-	logic = MatchLogic.new()
-	logic.setup([1, 2, 3, 4], 0)
-	_setup_world(0)
-	_create_player(1, hud.player_name(), false)
-	_create_player(2, "Bot Ada", true)
-	_create_player(3, "Bot Bix", true)
-	_create_player(4, "Bot Cy", true)
-	logic.start_round()
-	_after_new_round()
-	hud.show_game()
-	hud.log_line("PRACTICE: press P to paint, F for flashlight, left click to shoot.")
-	_capture()
 
 func start_host() -> void:
 	_cleanup_match()
@@ -240,8 +219,8 @@ func start_host() -> void:
 	logic = MatchLogic.new()
 	logic.setup([1], 0)
 	_setup_world(0)
-	_create_player(1, hud.player_name(), false)
-	hud.show_lobby("HOSTING on port %d.\nClients join with ws://<your-ip>:%d\nPress ENTER when everyone is in.\nBots fill empty slots." % [hud.host_port(), hud.host_port()])
+	_create_player(1, hud.player_name())
+	hud.show_lobby("HOSTING on port %d.\nClients join with ws://<your-ip>:%d\nAt least 2 real players are needed.\nPress ENTER when everyone is in." % [hud.host_port(), hud.host_port()])
 
 func _on_connection_state(ok: bool, detail: String) -> void:
 	print("NET: %s - %s" % [str(ok), detail])
@@ -253,10 +232,13 @@ func _on_connection_state(ok: bool, detail: String) -> void:
 
 func _on_peer_connected(id: int) -> void:
 	print("PEER CONNECTED: %d" % id)
-	_create_player(id, "Guest %d" % id, false)
+	_create_player(id, "Guest %d" % id)
 	if not logic.ids.has(id):
 		logic.ids.append(id)
-	hud.set_menu_info("Player %d joined. %d connected. Press ENTER to start." % [id, logic.ids.size()])
+	if logic.ids.size() >= 2:
+		hud.set_menu_info("Player %d joined. %d connected. Press ENTER to start." % [id, logic.ids.size()])
+	else:
+		hud.set_menu_info("Player %d joined. Need 1 more real player." % id)
 	if running and logic != null:
 		_send_welcome(id)
 
@@ -274,10 +256,9 @@ func _on_peer_disconnected(id: int) -> void:
 func _begin_host_match() -> void:
 	if logic == null or running:
 		return
-	while logic.ids.size() < 3:
-		var bid: int = 100 + logic.ids.size()
-		logic.ids.append(bid)
-		_create_player(bid, "Bot %d" % bid, true)
+	if logic.ids.size() < 2:
+		hud.set_menu_info("Need at least 2 real players. Wait for another player to join.")
+		return
 	logic.map_index = 0
 	logic.setup(logic.ids.duplicate(), 0)
 	for id in logic.ids:
@@ -371,7 +352,7 @@ func _on_net_message(from_id: int, msg: Dictionary) -> void:
 			_setup_world(m)
 			for raw in ids_raw:
 				var pid := int(raw)
-				_create_player(pid, str(names_raw.get(str(pid), "Player")), false)
+				_create_player(pid, str(names_raw.get(str(pid), "Player")))
 			running = true
 			print("WELCOME: id=%d players=%d map=%d" % [local_id, players.size(), m])
 			logic = MatchLogic.new()
@@ -415,7 +396,7 @@ func _apply_snapshot(s: Dictionary) -> void:
 		if pid < 0:
 			continue
 		if not players.has(pid):
-			_create_player(pid, str(pd.get("n", "Player")), false)
+			_create_player(pid, str(pd.get("n", "Player")))
 		var st: Dictionary = players[pid]
 		st.name = str(pd.get("n", st.name))
 		st.x = float(pd.get("x", st.x))
@@ -544,7 +525,7 @@ func try_preset_paint(idx: int) -> void:
 	else:
 		Net.send_to_host({"t": "paint_fill", "c": c.to_html(false)})
 	_play("paint")
-	hud.log_line("Couleur: %s" % Core.COLOR_NAMES[idx])
+	hud.log_line("Colour: %s" % Core.COLOR_NAMES[idx])
 
 func _set_paint_mode(on: bool) -> void:
 	if not running:
@@ -555,6 +536,9 @@ func _set_paint_mode(on: bool) -> void:
 	paint_mode = on
 	_paint_hold = false
 	_orbit_hold = false
+	if on:
+		_orbit_yaw = _yaw
+		_orbit_pitch = _pitch
 	hud.set_paint_mode(on)
 	if views.has(local_id):
 		views[local_id].avatar.node.visible = _role_of(local_id) == "HIDER"
@@ -695,52 +679,6 @@ func _resolve_shot(by_id: int) -> void:
 		if logic.phase == "round_end":
 			_on_phase_change("round_end")
 
-func _bot_input(st: Dictionary, delta: float) -> Dictionary:
-	var inp := {"fw": 0.0, "sd": 0.0, "sprint": false, "jump": false}
-	var here := Vector3(st.x, 0, st.z)
-	if _role_of(st.id) == "SEEKER":
-		var target := -1
-		var best := 1.0e9
-		for id in players:
-			if id == st.id or logic.found.get(id, false):
-				continue
-			var other: Dictionary = players[id]
-			var d := here.distance_to(Vector3(other.x, 0, other.z))
-			if d < best:
-				best = d
-				target = id
-		if target >= 0:
-			var t: Dictionary = players[target]
-			var to := Vector3(t.x, 0, t.z) - here
-			var want: float = atan2(-to.x, -to.z)
-			st.yaw = lerp_angle(st.yaw, want, clampf(delta * 2.4, 0, 1))
-			st.flash = true
-			if best > 2.4:
-				inp.fw = 1.0
-			elif logic.phase == "seeking":
-				_resolve_shot(st.id)
-		else:
-			inp.fw = 0.35
-	else:
-		if st.bot_target == null and not world.props.is_empty():
-			st.bot_target = world.props[randi() % world.props.size()]
-			var pc: Color = Core.COLORS[int(st.bot_target.color)]
-			var dcol := Vector4(st.color.r - pc.r, st.color.g - pc.g, st.color.b - pc.b, 0)
-			if dcol.length() > 0.05:
-				_apply_fill(st.id, pc)
-		if st.bot_target != null:
-			var goal: Vector3 = st.bot_target.pos
-			var goal_flat := Vector3(goal.x, 0, goal.z)
-			var d := here.distance_to(goal_flat)
-			if d > 1.8:
-				var to := goal_flat - here
-				var want: float = atan2(-to.x, -to.z)
-				st.yaw = lerp_angle(st.yaw, want, clampf(delta * 2.0, 0, 1))
-				inp.fw = 0.75
-			else:
-				inp.fw = 0.0
-	return inp
-
 func _simulate(delta: float) -> void:
 	for id in players:
 		var st: Dictionary = players[id]
@@ -749,8 +687,6 @@ func _simulate(delta: float) -> void:
 			body.velocity = Vector3.ZERO
 			continue
 		var inp: Dictionary = st.input
-		if st.bot:
-			inp = _bot_input(st, delta)
 		var yaw := float(st.yaw)
 		var fwd := Vector3(-sin(yaw), 0, -cos(yaw))
 		var right := Vector3(cos(yaw), 0, -sin(yaw))
@@ -819,7 +755,6 @@ func _after_new_round() -> void:
 		st.flash = false
 		st.seen = false
 		st.was_seen = false
-		st.bot_target = null
 		_apply_fill(int(id), Color.WHITE)
 		var body: CharacterBody3D = views[id].body
 		body.position = world.spawn(int(id) % 8)
@@ -873,7 +808,7 @@ func _update_views(delta: float) -> void:
 			body.position = Vector3(st.x, st.y, st.z)
 		elif not is_host:
 			body.position = body.position.lerp(Vector3(st.x, st.y, st.z), clampf(delta * 12.0, 0, 1))
-		# The character always turns with the camera / look direction.
+		# The character follows the player's yaw, not the PAINT camera orbit.
 		body.rotation.y = float(st.yaw)
 		var avatar: Dictionary = v.avatar
 		avatar.node.visible = (id != local_id) or (_role_of(id) == "HIDER")
@@ -890,9 +825,12 @@ func _update_views(delta: float) -> void:
 		var b: CharacterBody3D = views[local_id].body
 		if local_role == "HIDER":
 			# Hiders always see their own avatar from a third-person camera.
+			# In PAINT mode the camera uses its own orbit angles, so orbiting
+			# never changes the direction the character is facing.
 			var dist := paint_zoom if paint_mode else 4.2
-			var cp := clampf(_pitch, -0.45, 0.75)
-			var off := Vector3(sin(_yaw) * cos(cp), sin(cp) + 0.25, cos(_yaw) * cos(cp)) * dist
+			var cy := _orbit_yaw if paint_mode else _yaw
+			var cp := clampf(_orbit_pitch if paint_mode else _pitch, -0.45, 0.75)
+			var off := Vector3(sin(cy) * cos(cp), sin(cp) + 0.25, cos(cy) * cos(cp)) * dist
 			camera.position = b.position + Vector3(0, 1.1, 0) + off
 			camera.look_at(b.position + Vector3(0, 1.1, 0))
 		else:
@@ -932,18 +870,30 @@ func _process(delta: float) -> void:
 		return
 	_shoot_cooldown = maxf(0.0, _shoot_cooldown - delta)
 
-	# Paint mode keeps the match alive (bots, timers, network) but the painter
+	# Paint mode keeps the match alive (timers, network) but the painter
 	# stands still so the avatar is easy to hit with the brush.
 	var frozen := paint_mode
 
-	if _keys.get(KEY_LEFT, false):
-		_yaw += 2.0 * delta
-	if _keys.get(KEY_RIGHT, false):
-		_yaw -= 2.0 * delta
-	if _keys.get(KEY_UP, false):
-		_pitch = clampf(_pitch + 1.5 * delta, -1.2, 1.2)
-	if _keys.get(KEY_DOWN, false):
-		_pitch = clampf(_pitch - 1.5 * delta, -1.2, 1.2)
+	# Arrow keys follow the same rule: in PAINT mode they orbit the camera,
+	# outside PAINT mode they turn the player's look direction.
+	if paint_mode:
+		if _keys.get(KEY_LEFT, false):
+			_orbit_yaw += 2.0 * delta
+		if _keys.get(KEY_RIGHT, false):
+			_orbit_yaw -= 2.0 * delta
+		if _keys.get(KEY_UP, false):
+			_orbit_pitch = clampf(_orbit_pitch + 1.5 * delta, -0.45, 0.75)
+		if _keys.get(KEY_DOWN, false):
+			_orbit_pitch = clampf(_orbit_pitch - 1.5 * delta, -0.45, 0.75)
+	else:
+		if _keys.get(KEY_LEFT, false):
+			_yaw += 2.0 * delta
+		if _keys.get(KEY_RIGHT, false):
+			_yaw -= 2.0 * delta
+		if _keys.get(KEY_UP, false):
+			_pitch = clampf(_pitch + 1.5 * delta, -1.2, 1.2)
+		if _keys.get(KEY_DOWN, false):
+			_pitch = clampf(_pitch - 1.5 * delta, -1.2, 1.2)
 
 	if is_host:
 		if players.has(local_id):
@@ -1026,9 +976,10 @@ func _input(event: InputEvent) -> void:
 				if _paint_hold:
 					_paint_at(m.position)
 				elif _orbit_hold:
-					# Right-drag orbits the third-person camera in PAINT mode.
-					_yaw -= m.relative.x * 0.006
-					_pitch = clampf(_pitch - m.relative.y * 0.006, -0.45, 0.75)
+					# Right-drag orbits the camera only. The character keeps
+					# its own yaw, so it does not turn with the brush view.
+					_orbit_yaw -= m.relative.x * 0.006
+					_orbit_pitch = clampf(_orbit_pitch - m.relative.y * 0.006, -0.45, 0.75)
 			elif Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 				_yaw -= m.relative.x * 0.0026
 				_pitch = clampf(_pitch - m.relative.y * 0.0026, -1.2, 1.2)

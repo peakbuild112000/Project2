@@ -146,10 +146,9 @@ func _build_menu() -> void:
 	var bg := _panel(menu_group, -640, -360, 1280, 720, 0.5, 0.5, Color(0.01, 0.02, 0.06, 0.95))
 	_label(bg, "CHROMA CHAMELEON", -300, -292, 600, 58, 0.5, 0.5, 42, Color(0.10, 0.85, 0.95))
 	_label(bg, "Paint yourself. Blend in. Survive the seeker.", -300, -238, 600, 30, 0.5, 0.5, 18, Color(0.75, 0.82, 0.95))
-	_button(bg, "PRACTICE (BOTS)", "practice", 0, -170, -170, 340, 48, 0.5, 0.5)
-	_button(bg, "HOST SESSION", "host", 0, -170, -110, 340, 48, 0.5, 0.5)
-	_button(bg, "JOIN SESSION", "join", 0, -170, -50, 340, 48, 0.5, 0.5)
-	_button(bg, "HOW TO PLAY", "help", 0, -170, 10, 340, 48, 0.5, 0.5)
+	_button(bg, "HOST SESSION", "host", 0, -170, -170, 340, 48, 0.5, 0.5)
+	_button(bg, "JOIN SESSION", "join", 0, -170, -110, 340, 48, 0.5, 0.5)
+	_button(bg, "HOW TO PLAY", "help", 0, -170, -50, 340, 48, 0.5, 0.5)
 	name_edit = _input_line(bg, "Your name", "Player", -170, 82, 340, 38)
 	url_edit = _input_line(bg, "ws://host:9080", "ws://127.0.0.1:9080", -170, 130, 340, 38)
 	port_edit = _input_line(bg, "Port", "9080", -170, 178, 340, 38)
@@ -202,7 +201,7 @@ func _build_hud() -> void:
 		bb.add_theme_stylebox_override("normal", bsb)
 		bb.pressed.connect(_on_brush_pressed.bind(i))
 		brush_buttons.append(bb)
-	_label(paint_panel, "Left-drag: paint  •  Right-drag: rotate  •  Wheel: zoom  •  Pipette: rendered colour (shadows included)  •  P: exit", -305, 42, 610, 24, 0.5, 0.5, 12, Color(0.70, 0.80, 0.95))
+	_label(paint_panel, "Left-drag: paint  •  Right-drag: orbit camera only  •  Wheel: zoom  •  Pipette: rendered colour (shadows included)  •  P: exit", -305, 42, 610, 24, 0.5, 0.5, 12, Color(0.70, 0.80, 0.95))
 	paint_panel.visible = false
 
 func _build_result() -> void:

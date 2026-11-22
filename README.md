@@ -31,8 +31,9 @@ There are 3 rounds on 3 deterministic generated maps.
 - **Left-drag on your avatar** to paint. The brush raycasts the exact body part
   under the cursor, and each body part has its own cell in the texture atlas:
   the stroke appears where you clicked and is synchronized over the network.
-- **Right-drag** orbits the third-person camera and turns the character with it
-  (Hiders in PAINT mode only).
+- **Right-drag** orbits the third-person camera only. The character keeps its
+  own facing direction and does not turn with the brush view (Hiders in PAINT
+  mode only).
 - **Mouse wheel** zooms the camera in and out in PAINT mode.
 - The **Pipette** samples the colour **as rendered on screen**, including
   lighting and shadows. A red prop in a dark corner gives a dark red, not a
@@ -45,10 +46,10 @@ There are 3 rounds on 3 deterministic generated maps.
 | Key | Action |
 | --- | --- |
 | `WASD` | Move |
-| Arrow keys | Look |
+| Arrow keys | Look (orbit the camera in PAINT mode) |
 | `Shift` | Sprint |
 | `Mouse` | Look (cursor captured outside PAINT mode) |
-| `Right-drag + mouse` | Orbit camera and turn the character (Hider, PAINT mode only) |
+| `Right-drag + mouse` | Orbit the camera only, no character turn (Hider, PAINT mode only) |
 | `Mouse wheel` | Zoom (Hider, PAINT mode only) |
 | `P` | Enter / exit PAINT mode (Hider) |
 | `1`–`5` | Quick colours (full repaint) |
@@ -62,7 +63,9 @@ There are 3 rounds on 3 deterministic generated maps.
 
 1. Open Godot 4.7.2 and import `project.godot`.
 2. Press `F5` to run `scenes/Main.tscn`.
-3. Choose **PRACTICE (BOTS)** to play immediately with 3 bots.
+3. Choose **HOST SESSION**, then have at least one other real player choose
+   **JOIN SESSION** with your IP address.
+4. The host presses `Enter` to start once everyone is connected.
 
 The UI is drawn on a 1280 × 720 surface, then scaled and centred
 automatically. It stays correct at the reference resolution and at other
@@ -73,7 +76,8 @@ window sizes.
 **HOST SESSION** opens an authoritative WebSocket server on TCP port `9080`.
 Clients use **JOIN SESSION** with `ws://<HOST_IP>:9080`. Web builds need a
 `wss://` URL (for example through a Cloudflare tunnel) because GitHub Pages uses
-HTTPS. The host presses `Enter` to start; empty slots are filled by bots.
+HTTPS. The host presses `Enter` to start. **Only real players are allowed**:
+at least 2 connected players are required, and no bots are ever spawned.
 
 Painted colours and shots are synchronized: the server is authoritative and
 clients only send their intent.
@@ -91,6 +95,6 @@ scripts/Net.gd         WebSocket transport (server/client)
 scripts/Match.gd       authoritative round, role and elimination rules
 scripts/World.gd       arenas, paintable avatar texture, camouflage
 scripts/HUD.gd         interface, colour picker, brushes, pipette
-scripts/Game.gd        main controller, paint, shooting, bots, physics, camera
+scripts/Game.gd        main controller, paint, shooting, physics, camera
 addons/                Godot Super-Wakatime addon
 ```
