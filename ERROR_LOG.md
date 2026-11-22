@@ -133,5 +133,6 @@ were fixed. Kept in English like the rest of the documentation.
 - **Cause:** A manual rerun keeps the Pages artifact uploaded by the previous attempt, so
   two artifacts shared the default name.
 - **Fix:** The upload and deploy steps now use a unique name based on
-  `${{ github.run_id }}-${{ github.run_attempt }}`.
+  `${{ github.run_id }}-${{ github.run_attempt }}`, and a polling step waits until the
+  artifact metadata is visible before `deploy-pages` looks for it.
 - **Status:** Resolved.

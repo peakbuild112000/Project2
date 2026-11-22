@@ -65,6 +65,26 @@ jobs:
           name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
           path: build/web
 
+      # The artifact list is briefly stale after an upload. Poll until the
+      # metadata is visible before asking deploy-pages to look for it.
+      - name: Wait for Pages artifact metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          for i in $(seq 1 20); do
+            ids=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?per_page=100" \
+              --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\") | .id")
+            if [ -n "$ids" ]; then
+              echo "Artifact is visible: $ids"
+              exit 0
+            fi
+            echo "Waiting for artifact metadata ($i/20)..."
+            sleep 3
+          done
+          echo "Pages artifact never appeared" >&2
+          exit 1
+
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
