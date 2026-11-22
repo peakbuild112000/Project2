@@ -1,264 +1,176 @@
 extends CanvasLayer
-class_name GameHUD
+## All interface elements, assembled in code so the project has no UI files.
 
-## In-game overlay. The color swatches and the small movement pad are real
-## buttons, so a player can paint and walk with the mouse alone. Keyboard
-## controls still work; they are simply not required.
+signal ui(action: String, value: int)
 
-signal paint_selected(color_index: int)
-signal move_input(direction: Vector2)
+var root: Control
+var menu_group: Control
+var hud_group: Control
+var result_group: Control
+var menu_info: Label
+var phase_label: Label
+var time_label: Label
+var role_label: Label
+var hide_label: Label
+var score_label: Label
+var log_label: Label
+var result_label: Label
+var name_edit: LineEdit
+var url_edit: LineEdit
+var port_edit: LineEdit
+var swatches: Array = []
+var _log_lines: Array = []
 
-var director: MatchDirector
+func _ready() -> void:
+	layer = 20
+	root = Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(root)
+	_build_menu()
+	_build_hud()
+	_build_result()
+	show_menu()
 
-var _role_label: Label
-var _timer_label: Label
-var _score_label: Label
-var _round_label: Label
-var _hide_fill: ColorRect
-var _hide_text: Label
-var _stamina_fill: ColorRect
-var _roster: VBoxContainer
-var _banner: Label
-var _tag_prompt: Label
-var _flash_label: Label
+func _place(c: Control, x: float, y: float, w: float, h: float, ax: float = 0.0, ay: float = 0.0) -> void:
+	c.anchor_left = ax
+	c.anchor_top = ay
+	c.anchor_right = ax
+	c.anchor_bottom = ay
+	c.offset_left = x
+	c.offset_top = y
+	c.offset_right = x + w
+	c.offset_bottom = y + h
 
-var _swatches: Array[Button] = []
-var _move_buttons: Dictionary = {}
-var _held_directions: Dictionary = {}
-var _built: bool = false
-var _banner_time: float = 0.0
-
-
-func setup(d: MatchDirector) -> void:
-	director = d
-	if not _built:
-		_build()
-	_built = true
-
-
-func _style_box(color: Color, border: Color, radius: int = 8) -> StyleBoxFlat:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = color
-	sb.set_border_width_all(2)
-	sb.border_color = border
-	sb.set_corner_radius_all(radius)
-	return sb
-
-
-func _panel(parent: Node, pos: Vector2, size: Vector2, color: Color = Color(0.02, 0.03, 0.09, 0.72), border: Color = Color(0.25, 0.5, 0.8, 0.55)) -> Panel:
+func _panel(parent: Control, x: float, y: float, w: float, h: float, ax: float = 0.0, ay: float = 0.0, col: Color = Color(0.02, 0.03, 0.08, 0.88)) -> Panel:
 	var p := Panel.new()
-	p.position = pos
-	p.size = size
-	p.add_theme_stylebox_override("panel", _style_box(color, border))
+	_place(p, x, y, w, h, ax, ay)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = col
+	sb.border_color = Color(0.10, 0.85, 0.95, 0.55)
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(8)
+	p.add_theme_stylebox_override("panel", sb)
 	parent.add_child(p)
 	return p
 
-
-func _label(parent: Node, text: String, pos: Vector2, size: Vector2, font_size: int = 20, color: Color = Color.WHITE) -> Label:
+func _label(parent: Control, text: String, x: float, y: float, w: float, h: float, ax: float = 0.0, ay: float = 0.0, size: int = 18, color: Color = Color.WHITE) -> Label:
 	var l := Label.new()
+	_place(l, x, y, w, h, ax, ay)
 	l.text = text
-	l.position = pos
-	l.size = size
-	l.add_theme_font_size_override("font_size", font_size)
-	l.modulate = color
+	l.add_theme_font_size_override("font_size", size)
+	l.add_theme_color_override("font_color", color)
 	parent.add_child(l)
 	return l
 
-
-func _icon_button(parent: Node, text: String, pos: Vector2, size: Vector2, bg: Color) -> Button:
+func _button(parent: Control, text: String, action: String, value: int, x: float, y: float, w: float, h: float, ax: float = 0.0, ay: float = 0.0) -> Button:
 	var b := Button.new()
+	_place(b, x, y, w, h, ax, ay)
 	b.text = text
-	b.position = pos
-	b.size = size
-	b.focus_mode = Control.FOCUS_NONE
-	b.add_theme_font_size_override("font_size", 18)
-	b.add_theme_stylebox_override("normal", _style_box(bg, Color(1, 1, 1, 0.55), 6))
-	b.add_theme_stylebox_override("hover", _style_box(bg.lightened(0.25), Color(1, 1, 1, 0.9), 6))
-	b.add_theme_stylebox_override("pressed", _style_box(bg.darkened(0.25), Color(1, 1, 1, 0.9), 6))
+	b.pressed.connect(_on_pressed.bind(action, value))
 	parent.add_child(b)
 	return b
 
+func _input_line(parent: Control, placeholder: String, value: String, x: float, y: float, w: float, h: float) -> LineEdit:
+	var e := LineEdit.new()
+	_place(e, x, y, w, h, 0.5, 0.5)
+	e.placeholder_text = placeholder
+	e.text = value
+	parent.add_child(e)
+	return e
 
-func _build() -> void:
-	var root := Control.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	# Let clicks outside a button fall through to the 3D game (right-click tag).
-	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(root)
+func _on_pressed(action: String, value: int) -> void:
+	ui.emit(action, value)
 
-	var top := _panel(root, Vector2(24, 18), Vector2(1240, 74))
-	_role_label = _label(top, "HIDER", Vector2(16, 8), Vector2(220, 34), 28, Color(0.4, 1, 0.7))
-	_round_label = _label(top, "ROUND 1/3", Vector2(16, 42), Vector2(220, 26), 16, Color(0.7, 0.8, 0.95))
-	_timer_label = _label(top, "1:45", Vector2(520, 6), Vector2(200, 50), 40, Color.WHITE)
-	_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_score_label = _label(top, "SCORE 0", Vector2(1010, 12), Vector2(210, 28), 24, Color(1, 0.85, 0.35))
-	_score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_flash_label = _label(top, "FLASHLIGHT: F", Vector2(930, 44), Vector2(290, 24), 15, Color(0.8, 0.9, 1))
-	_flash_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+func _build_menu() -> void:
+	menu_group = Control.new()
+	root.add_child(menu_group)
+	var bg := _panel(menu_group, -640, -360, 1280, 720, 0.5, 0.5, Color(0.01, 0.02, 0.06, 0.95))
+	_label(bg, "CHROMA CHAMELEON", -300, -292, 600, 58, 0.5, 0.5, 42, Color(0.10, 0.85, 0.95))
+	_label(bg, "Paint yourself. Blend in. Survive the seeker.", -300, -238, 600, 30, 0.5, 0.5, 18, Color(0.75, 0.82, 0.95))
+	_button(bg, "PRACTICE (BOTS)", "practice", 0, -170, -170, 340, 48, 0.5, 0.5)
+	_button(bg, "HOST SESSION", "host", 0, -170, -110, 340, 48, 0.5, 0.5)
+	_button(bg, "JOIN SESSION", "join", 0, -170, -50, 340, 48, 0.5, 0.5)
+	_button(bg, "HOW TO PLAY", "help", 0, -170, 10, 340, 48, 0.5, 0.5)
+	name_edit = _input_line(bg, "Your name", "Player", -170, 82, 340, 38)
+	url_edit = _input_line(bg, "ws://host:9080", "ws://127.0.0.1:9080", -170, 130, 340, 38)
+	port_edit = _input_line(bg, "Port", "9080", -170, 178, 340, 38)
+	menu_info = _label(bg, "", -300, 232, 600, 100, 0.5, 0.5, 16, Color(0.70, 0.90, 0.80))
+	menu_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
-	var roster_panel := _panel(root, Vector2(24, 108), Vector2(250, 210))
-	var roster_title := _label(roster_panel, "PLAYERS", Vector2(12, 6), Vector2(220, 24), 16, Color(0.6, 0.8, 1))
-	_roster = VBoxContainer.new()
-	_roster.position = Vector2(12, 34)
-	_roster.add_theme_constant_override("separation", 4)
-	roster_panel.add_child(_roster)
+func _build_hud() -> void:
+	hud_group = Control.new()
+	root.add_child(hud_group)
+	var top := _panel(hud_group, -430, -345, 860, 52, 0.5, 0.5)
+	phase_label = _label(top, "", 14, 8, 260, 34, 0.0, 0.0, 20, Color(0.10, 0.85, 0.95))
+	time_label = _label(top, "", 300, 6, 120, 38, 0.0, 0.0, 26, Color.WHITE)
+	score_label = _label(top, "", 440, 8, 400, 34, 0.0, 0.0, 16, Color(0.85, 0.88, 1.0))
+	role_label = _label(hud_group, "", -430, -284, 860, 44, 0.5, 0.5, 22, Color.WHITE)
+	hide_label = _label(hud_group, "", -430, -246, 860, 38, 0.5, 0.5, 17, Color(0.45, 0.90, 0.25))
+	_label(hud_group, "+", -12, -22, 24, 40, 0.5, 0.5, 24, Color(1, 1, 1, 0.55))
+	log_label = _label(hud_group, "", -430, 165, 860, 120, 0.5, 0.5, 16, Color(0.90, 0.93, 1.0))
+	log_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
-	var bottom := _panel(root, Vector2(24, 596), Vector2(640, 104))
-	_label(bottom, "PAINT - CLICK A COLOR", Vector2(12, 6), Vector2(280, 22), 15, Color(0.6, 0.8, 1))
-	for i in GameState.PALETTE.size():
-		var color: Color = GameState.color_for(i)
-		var sw := _icon_button(bottom, "", Vector2(12 + i * 56, 32), Vector2(46, 26), color)
-		sw.pressed.connect(_on_swatch_pressed.bind(i))
-		_swatches.append(sw)
-		var caption: String = "W" if i == GameState.WHITE else str(i + 1)
-		_label(bottom, caption, Vector2(25 + i * 56, 62), Vector2(24, 20), 13, Color(0.8, 0.85, 1))
+	var palette := _panel(hud_group, -300, 252, 600, 72, 0.5, 0.5)
+	for i in range(Core.COLORS.size()):
+		var b := _button(palette, Core.COLOR_NAMES[i], "paint", i, -282 + i * 113, -22, 104, 44, 0.5, 0.5)
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Core.COLORS[i]
+		sb.set_corner_radius_all(6)
+		b.add_theme_stylebox_override("normal", sb)
+		swatches.append(b)
 
-	_label(bottom, "CAMO", Vector2(300, 6), Vector2(80, 22), 15, Color(0.6, 0.8, 1))
-	var hide_bg := ColorRect.new()
-	hide_bg.position = Vector2(300, 32)
-	hide_bg.size = Vector2(170, 18)
-	hide_bg.color = Color(0.05, 0.08, 0.14, 0.9)
-	bottom.add_child(hide_bg)
-	_hide_fill = ColorRect.new()
-	_hide_fill.position = Vector2(300, 32)
-	_hide_fill.size = Vector2(0, 18)
-	_hide_fill.color = Color(0.4, 1, 0.7)
-	bottom.add_child(_hide_fill)
-	_hide_text = _label(bottom, "0%", Vector2(480, 8), Vector2(60, 24), 15, Color.WHITE)
+func _build_result() -> void:
+	result_group = Control.new()
+	root.add_child(result_group)
+	var bg := _panel(result_group, -330, -150, 660, 300, 0.5, 0.5, Color(0.02, 0.03, 0.09, 0.94))
+	result_label = _label(bg, "", -290, -120, 580, 230, 0.5, 0.5, 22, Color.WHITE)
+	result_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
-	_label(bottom, "STAMINA", Vector2(300, 58), Vector2(100, 22), 14, Color(0.6, 0.8, 1))
-	var st_bg := ColorRect.new()
-	st_bg.position = Vector2(400, 62)
-	st_bg.size = Vector2(140, 10)
-	st_bg.color = Color(0.05, 0.08, 0.14, 0.9)
-	bottom.add_child(st_bg)
-	_stamina_fill = ColorRect.new()
-	_stamina_fill.position = Vector2(400, 62)
-	_stamina_fill.size = Vector2(140, 10)
-	_stamina_fill.color = Color(0.3, 0.8, 1.0)
-	bottom.add_child(_stamina_fill)
+func show_menu() -> void:
+	menu_group.visible = true
+	hud_group.visible = false
+	result_group.visible = false
 
-	_build_move_pad(root)
+func show_lobby(text: String) -> void:
+	show_menu()
+	menu_info.text = text
 
-	_banner = _label(root, "", Vector2(340, 150), Vector2(600, 60), 34, Color(1, 0.85, 0.3))
-	_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_tag_prompt = _label(root, "", Vector2(490, 440), Vector2(300, 40), 22, Color(1, 0.4, 0.4))
-	_tag_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var hint := _label(root, "CLICK A COLOR TO PAINT  |  WASD OR ARROWS TO MOVE  |  F FLASHLIGHT  |  E / RIGHT-CLICK TAG  |  ESC PAUSE",
-		Vector2(140, 688), Vector2(1000, 24), 14, Color(0.6, 0.7, 0.85))
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+func show_game() -> void:
+	menu_group.visible = false
+	hud_group.visible = true
+	result_group.visible = false
 
+func show_result(text: String) -> void:
+	menu_group.visible = false
+	hud_group.visible = true
+	result_group.visible = true
+	result_label.text = text
 
-func _build_move_pad(root: Node) -> void:
-	var pad := _panel(root, Vector2(1010, 590), Vector2(230, 112))
-	_label(pad, "MOUSE MOVE", Vector2(12, 4), Vector2(200, 22), 13, Color(0.6, 0.8, 1))
-	var key_bg := Color(0.08, 0.18, 0.3, 0.95)
-	var up := _icon_button(pad, "^", Vector2(90, 26), Vector2(48, 34), key_bg)
-	var left := _icon_button(pad, "<", Vector2(38, 64), Vector2(48, 34), key_bg)
-	var down := _icon_button(pad, "v", Vector2(90, 64), Vector2(48, 34), key_bg)
-	var right := _icon_button(pad, ">", Vector2(142, 64), Vector2(48, 34), key_bg)
-	_connect_pad_button(up, Vector2(0, -1))
-	_connect_pad_button(left, Vector2(-1, 0))
-	_connect_pad_button(down, Vector2(0, 1))
-	_connect_pad_button(right, Vector2(1, 0))
+func set_menu_info(text: String) -> void:
+	menu_info.text = text
 
+func update_hud(info: Dictionary) -> void:
+	phase_label.text = str(info.get("phase", ""))
+	time_label.text = "%02d" % int(info.get("time", 0))
+	role_label.text = str(info.get("role", ""))
+	hide_label.text = str(info.get("hide", ""))
+	score_label.text = str(info.get("scores", ""))
 
-func _connect_pad_button(button: Button, direction: Vector2) -> void:
-	_move_buttons[button] = direction
-	button.button_down.connect(_on_move_down.bind(button))
-	button.button_up.connect(_on_move_up.bind(button))
-	button.mouse_exited.connect(_on_move_exit.bind(button))
+func log_line(msg: String) -> void:
+	_log_lines.append(msg)
+	if _log_lines.size() > 5:
+		_log_lines.pop_front()
+	log_label.text = ""
+	for line in _log_lines:
+		log_label.text += str(line) + "\n"
 
+func player_name() -> String:
+	var n := name_edit.text.strip_edges()
+	return n if not n.is_empty() else "Player"
 
-func _on_move_down(_button: Button) -> void:
-	_held_directions[_button] = _move_buttons[_button]
-	_emit_move()
+func join_url() -> String:
+	var u := url_edit.text.strip_edges()
+	return u if not u.is_empty() else "ws://127.0.0.1:9080"
 
-
-func _on_move_up(button: Button) -> void:
-	_held_directions.erase(button)
-	_emit_move()
-
-
-func _on_move_exit(button: Button) -> void:
-	if _held_directions.has(button):
-		_held_directions.erase(button)
-		_emit_move()
-
-
-func _emit_move() -> void:
-	var direction := Vector2.ZERO
-	for dir in _held_directions.values():
-		direction += dir
-	if direction.length() > 1.0:
-		direction = direction.normalized()
-	move_input.emit(direction)
-
-
-func _on_swatch_pressed(index: int) -> void:
-	paint_selected.emit(index)
-
-
-func show_banner(text: String, color: Color) -> void:
-	_banner.text = text
-	_banner.modulate = color
-	_banner_time = 2.6
-
-
-func _process(delta: float) -> void:
-	if not _built or director == null:
-		return
-	if _banner_time > 0.0:
-		_banner_time -= delta
-		_banner.modulate.a = clampf(_banner_time, 0.0, 1.0)
-	else:
-		_banner.text = ""
-
-	var is_hunter: bool = director.role == "hunter"
-	_role_label.text = "HUNTER" if is_hunter else "HIDER"
-	_role_label.modulate = Color(1, 0.45, 0.35) if is_hunter else Color(0.4, 1, 0.7)
-	_round_label.text = "ROUND %d/%d  -  %s" % [director.round, director.total_rounds, GameState.map_name(director.map_index)]
-	var t: int = maxi(0, int(director.time_left))
-	_timer_label.text = "%d:%02d" % [t / 60, t % 60]
-	_timer_label.modulate = Color(1, 0.35, 0.3) if t < 20 else Color.WHITE
-
-	var me: Dictionary = director.local_state()
-	_score_label.text = "SCORE %d" % int(me.get("score", 0))
-	var hide: float = clampf(float(me.get("hide", 0.0)), 0.0, 1.0)
-	_hide_fill.size.x = 170.0 * hide
-	_hide_fill.color = Color(1 - hide, 0.35 + hide * 0.6, 0.35)
-	_hide_text.text = "%d%%" % int(hide * 100.0)
-	_stamina_fill.size.x = 140.0 * clampf(float(me.get("stamina", 1.0)), 0.0, 1.0)
-
-	var my_color: int = int(me.get("color", GameState.WHITE))
-	for i in _swatches.size():
-		var sw: Button = _swatches[i]
-		var active: bool = i == my_color
-		sw.scale = Vector2(1.16, 1.16) if active else Vector2.ONE
-		sw.modulate = Color.WHITE if active else Color(0.55, 0.6, 0.7)
-
-	# Only rebuild the roster when something in it actually changed.
-	var sig: String = ""
-	for id in director.players.keys():
-		var p: Dictionary = director.players[id]
-		sig += "%d:%s:%d:%d:%d;" % [
-			id, p["name"], int(p["score"]),
-			1 if p["alive"] else 0,
-			1 if int(id) == director.hunter_id else 0,
-		]
-	if _roster.get_meta("sig", "") != sig:
-		for child in _roster.get_children():
-			child.queue_free()
-		_roster.set_meta("sig", sig)
-		for id in director.players.keys():
-			var p: Dictionary = director.players[id]
-			var row := Label.new()
-			var mark: String = "★" if int(id) == director.hunter_id else "●"
-			row.text = "%s %-14s %5d" % [mark, str(p["name"]).substr(0, 14), int(p["score"])]
-			row.add_theme_font_size_override("font_size", 16)
-			var col: Color = Color(1, 0.8, 0.25) if int(id) == director.hunter_id else GameState.color_for(int(p["color"]))
-			row.modulate = col if p["alive"] else Color(0.4, 0.4, 0.45)
-			_roster.add_child(row)
-
-	_flash_label.visible = is_hunter
-	_tag_prompt.text = "E - TAG!" if (is_hunter and director.near_target) else ""
+func host_port() -> int:
+	return maxi(1, port_edit.text.to_int())

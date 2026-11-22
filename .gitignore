@@ -1,14 +1,5 @@
-# Godot 4 generated files
 .godot/
-*.import
-export.cfg
-
-# OS junk
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# Local tooling / logs that should not be committed
-/tools/downloads/
+tools/downloads/
 *.tmp
 *.log
+.DS_Store
