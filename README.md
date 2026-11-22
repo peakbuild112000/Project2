@@ -44,7 +44,8 @@ There are 3 rounds on 3 deterministic generated maps.
 
 | Key | Action |
 | --- | --- |
-| `WASD` / arrow keys | Move / look |
+| `WASD` | Move |
+| Arrow keys | Look |
 | `Shift` | Sprint |
 | `Mouse` | Look (cursor captured outside PAINT mode) |
 | `Right-drag + mouse` | Orbit camera and turn the character (Hider, PAINT mode only) |
