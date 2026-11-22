@@ -21,7 +21,6 @@ var phase_label: Label
 var time_label: Label
 var role_label: Label
 var hide_label: Label
-var score_label: Label
 var log_label: Label
 var result_label: Label
 var name_edit: LineEdit
@@ -140,7 +139,7 @@ func _on_brush_pressed(size: int) -> void:
 	var active: StyleBoxFlat = btn.get_theme_stylebox("normal")
 	if active != null:
 		active.bg_color = Color(0.10, 0.85, 0.95, 0.55)
-	brush_changed.emit([8, 20, 38][size])
+	brush_changed.emit([3, 10, 24][size])
 
 func _build_menu() -> void:
 	menu_group = _make_group()
@@ -162,7 +161,6 @@ func _build_hud() -> void:
 	var top := _panel(hud_group, -430, -345, 860, 52, 0.5, 0.5)
 	phase_label = _label(top, "", 14, 8, 260, 34, 0.0, 0.0, 20, Color(0.10, 0.85, 0.95))
 	time_label = _label(top, "", 300, 6, 120, 38, 0.0, 0.0, 26, Color.WHITE)
-	score_label = _label(top, "", 440, 8, 400, 34, 0.0, 0.0, 16, Color(0.85, 0.88, 1.0))
 	role_label = _label(hud_group, "", -430, -284, 860, 44, 0.5, 0.5, 22, Color.WHITE)
 	hide_label = _label(hud_group, "", -430, -246, 860, 38, 0.5, 0.5, 17, Color(0.45, 0.90, 0.25))
 	_label(hud_group, "+", -12, -22, 24, 40, 0.5, 0.5, 24, Color(1, 1, 1, 0.55))
@@ -181,7 +179,7 @@ func _build_hud() -> void:
 
 	# Unlimited-colour paint panel, shown while PAINT mode is active.
 	paint_panel = _panel(hud_group, -330, 170, 660, 128, 0.5, 0.5, Color(0.03, 0.05, 0.12, 0.95))
-	_label(paint_panel, "PAINT MODE  —  glisse sur ton personnage", -305, -48, 610, 24, 0.5, 0.5, 17, Color(0.10, 0.85, 0.95))
+	_label(paint_panel, "PAINT MODE  —  drag on your character", -305, -48, 610, 24, 0.5, 0.5, 17, Color(0.10, 0.85, 0.95))
 	color_picker = ColorPickerButton.new()
 	_place(color_picker, -305, -12, 210, 44, 0.5, 0.5)
 	color_picker.color = Color.WHITE
@@ -194,8 +192,8 @@ func _build_hud() -> void:
 	psb.set_corner_radius_all(6)
 	pipette_button.add_theme_stylebox_override("normal", psb)
 
-	_label(paint_panel, "Brosse", 72, -48, 100, 22, 0.5, 0.5, 14, Color(0.75, 0.82, 0.95))
-	var names := ["Petit", "Moyen", "Grand"]
+	_label(paint_panel, "Brush", 72, -48, 100, 22, 0.5, 0.5, 14, Color(0.75, 0.82, 0.95))
+	var names := ["Small", "Medium", "Large"]
 	for i in range(3):
 		var bb := _button(paint_panel, names[i], "brush", i, 72 + i * 78, -12, 72, 44, 0.5, 0.5)
 		var bsb := StyleBoxFlat.new()
@@ -204,7 +202,7 @@ func _build_hud() -> void:
 		bb.add_theme_stylebox_override("normal", bsb)
 		bb.pressed.connect(_on_brush_pressed.bind(i))
 		brush_buttons.append(bb)
-	_label(paint_panel, "Clic gauche glissé : peindre  •  Clic droit glissé : tourner  •  Pipette : couleur rendue (ombres incluses)  •  P : quitter", -305, 42, 610, 24, 0.5, 0.5, 12, Color(0.70, 0.80, 0.95))
+	_label(paint_panel, "Left-drag: paint  •  Right-drag: rotate  •  Wheel: zoom  •  Pipette: rendered colour (shadows included)  •  P: exit", -305, 42, 610, 24, 0.5, 0.5, 12, Color(0.70, 0.80, 0.95))
 	paint_panel.visible = false
 
 func _build_result() -> void:
@@ -253,7 +251,6 @@ func update_hud(info: Dictionary) -> void:
 	time_label.text = "%02d" % int(info.get("time", 0))
 	role_label.text = str(info.get("role", ""))
 	hide_label.text = str(info.get("hide", ""))
-	score_label.text = str(info.get("scores", ""))
 
 func log_line(msg: String) -> void:
 	_log_lines.append(msg)

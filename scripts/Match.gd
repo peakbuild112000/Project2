@@ -1,5 +1,6 @@
 extends RefCounted
-## Authoritative round/role/score rules. Pure logic, no engine dependencies.
+## Authoritative round / role / elimination rules. Pure logic, no engine dependencies.
+## There is no scoring system: the seeker eliminates hiders, nothing else.
 
 const MAX_ROUNDS := 3
 const HIDE_SECONDS := 25.0
@@ -12,7 +13,6 @@ var round := 1
 var phase := "menu" # menu | hiding | seeking | round_end | match_end
 var time_left := 0.0
 var hunter_id := -1
-var scores := {}
 var found := {}
 var rng := RandomNumberGenerator.new()
 
@@ -21,9 +21,6 @@ func setup(player_ids: Array, map: int) -> void:
 	map_index = map
 	round = 1
 	phase = "menu"
-	scores.clear()
-	for id in ids:
-		scores[id] = 0
 	rng.seed = int(Time.get_unix_time_from_system()) + map + ids.size()
 
 func start_round() -> void:
@@ -45,7 +42,7 @@ func update(delta: float) -> String:
 		time_left = SEEK_SECONDS
 		return "seeking"
 	if phase == "seeking":
-		return finish(false)
+		return finish()
 	if phase == "round_end":
 		if round >= MAX_ROUNDS:
 			phase = "match_end"
@@ -55,15 +52,9 @@ func update(delta: float) -> String:
 		return "new_round"
 	return ""
 
-func finish(seeker_won: bool) -> String:
+func finish() -> String:
 	phase = "round_end"
 	time_left = RESULT_SECONDS
-	if seeker_won:
-		scores[hunter_id] = int(scores.get(hunter_id, 0)) + 2
-	else:
-		for id in ids:
-			if id != hunter_id and not found.get(id, false):
-				scores[id] = int(scores.get(id, 0)) + 1
 	return "round_end"
 
 func all_found() -> bool:
@@ -72,14 +63,7 @@ func all_found() -> bool:
 			return false
 	return true
 
-## The seeker merely SEEING a hider earns a point. Does not eliminate.
-func spot() -> bool:
-	if phase != "seeking":
-		return false
-	scores[hunter_id] = int(scores.get(hunter_id, 0)) + 1
-	return true
-
-## The seeker must SHOOT a hider to eliminate them.
+## Instant elimination. Called when the seeker spots or shoots a hider.
 func tag(hider_id: int) -> bool:
 	if phase != "seeking":
 		return false
@@ -88,9 +72,8 @@ func tag(hider_id: int) -> bool:
 	if all_found():
 		return false
 	found[hider_id] = true
-	scores[hunter_id] = int(scores.get(hunter_id, 0)) + 3
 	if all_found():
-		finish(true)
+		finish()
 	return true
 
 func snapshot() -> Dictionary:
@@ -101,6 +84,5 @@ func snapshot() -> Dictionary:
 		"max_rounds": MAX_ROUNDS,
 		"hunter": hunter_id,
 		"map": map_index,
-		"scores": scores.duplicate(),
 		"found": found.duplicate(),
 	}

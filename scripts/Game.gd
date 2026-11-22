@@ -44,7 +44,7 @@ var brush_size := 20
 var pipette_mode := false
 var _paint_hold := false
 var _orbit_hold := false
-var _spot_cooldown := {}
+var paint_zoom := 3.6
 var _shoot_cooldown := 0.0
 
 func _ready() -> void:
@@ -115,7 +115,7 @@ func _on_ui(action: String, value: int) -> void:
 		"practice": start_offline()
 		"host": start_host()
 		"join": start_client()
-		"help": hud.set_menu_info("HIDERS: you are always in third person. Press P for PAINT mode: left-drag paints your avatar, right-drag rotates the camera, pipette samples a colour. Stand still near matching props to camouflage. SEEKERS: you are in first person. F toggles the flashlight. SEEING a hider gives +1 point, but LEFT CLICK (or E) SHOOTS them to eliminate (+3).")
+		"help": hud.set_menu_info("HIDERS: you are always in third person. Press P for PAINT mode: left-drag paints, right-drag rotates the camera and character, mouse wheel zooms, pipette samples a colour. Stand still near matching props to camouflage. SEEKERS: you are in first person. F toggles the flashlight. Spotting or shooting a hider eliminates them instantly.")
 		"paint": try_preset_paint(value)
 		"pipette": _toggle_pipette()
 		"leave": leave_match()
@@ -145,7 +145,6 @@ func _cleanup_match() -> void:
 	_orbit_hold = false
 	hud.set_paint_mode(false)
 	hud.set_pipette(false)
-	_spot_cooldown.clear()
 	_shoot_cooldown = 0.0
 	if Net.message_received.is_connected(_on_net_message):
 		Net.message_received.disconnect(_on_net_message)
@@ -405,10 +404,6 @@ func _apply_snapshot(s: Dictionary) -> void:
 	logic.round = int(s.get("round", logic.round))
 	logic.hunter_id = int(s.get("hunter", logic.hunter_id))
 	logic.map_index = int(s.get("map", logic.map_index))
-	var sc := {}
-	for k in s.get("scores", {}):
-		sc[int(k)] = int(s.scores[k])
-	logic.scores = sc
 	var fd := {}
 	for k in s.get("found", {}):
 		fd[int(k)] = bool(s.found[k])
@@ -538,7 +533,7 @@ func try_preset_paint(idx: int) -> void:
 	if not running or idx < 0 or idx >= Core.COLORS.size():
 		return
 	if _role_of(local_id) != "HIDER":
-		hud.log_line("Seuls les hiders peuvent peindre.")
+		hud.log_line("Only hiders can paint.")
 		return
 	var c: Color = Core.COLORS[idx]
 	paint_color = c
@@ -555,7 +550,7 @@ func _set_paint_mode(on: bool) -> void:
 	if not running:
 		return
 	if on and _role_of(local_id) != "HIDER":
-		hud.log_line("Le seeker reste en première personne : lui ne peint pas.")
+		hud.log_line("The seeker stays in first person and cannot paint.")
 		return
 	paint_mode = on
 	_paint_hold = false
@@ -633,7 +628,7 @@ func _pipette_at(pos: Vector2) -> void:
 	hud.set_color(picked)
 	pipette_mode = false
 	hud.set_pipette(false)
-	hud.log_line("Pipette (lumière/ombre incluse): #%s" % picked.to_html(false))
+	hud.log_line("Pipette (lighting and shadows included): #%s" % picked.to_html(false))
 	_play("paint")
 
 # ---------------------------------------------------------------- shooting ----
@@ -653,7 +648,7 @@ func _try_shoot(by_id: int = -1) -> void:
 		return
 	if _role_of(who) != "SEEKER":
 		if who == local_id:
-			hud.log_line("Seul le seeker peut tirer.")
+			hud.log_line("Only the seeker can shoot.")
 		return
 	if who == local_id and _shoot_cooldown > 0.0:
 		return
@@ -694,9 +689,9 @@ func _resolve_shot(by_id: int) -> void:
 		return
 	if logic.tag(target):
 		var name := str(players[target].name)
-		hud.log_line("%s a TIRE sur %s : éliminé ! +3" % [players[by_id].name, name])
+		hud.log_line("%s SHOT %s: eliminated!" % [players[by_id].name, name])
 		_play("found")
-		Net.broadcast({"t": "event", "msg": "%s a tiré sur %s : éliminé !" % [players[by_id].name, name]})
+		Net.broadcast({"t": "event", "msg": "%s shot %s: eliminated!" % [players[by_id].name, name]})
 		if logic.phase == "round_end":
 			_on_phase_change("round_end")
 
@@ -803,13 +798,15 @@ func _update_camo() -> void:
 					seen = true
 			elif st.camo < 0.45 and d < 10.0:
 				seen = true
-		if seen and not bool(st.was_seen) and float(_spot_cooldown.get(id, 0.0)) <= 0.0:
-			if id != logic.hunter_id and logic.phase == "seeking":
-				logic.spot()
-				_spot_cooldown[id] = 2.5
-				var msg := "%s est REPERE ! +1 pour le seeker" % str(players[id].name)
+		# Being seen means instant elimination. No scoring is involved.
+		if seen and not bool(st.was_seen):
+			if id != logic.hunter_id and logic.phase == "seeking" and logic.tag(id):
+				var msg := "%s was spotted and eliminated!" % str(players[id].name)
 				hud.log_line(msg)
+				_play("found")
 				Net.broadcast({"t": "event", "msg": msg})
+				if logic.phase == "round_end":
+					_on_phase_change("round_end")
 		st.was_seen = seen
 		st.seen = seen
 
@@ -827,7 +824,6 @@ func _after_new_round() -> void:
 		var body: CharacterBody3D = views[id].body
 		body.position = world.spawn(int(id) % 8)
 		body.velocity = Vector3.ZERO
-	_spot_cooldown.clear()
 	paint_color = Color.WHITE
 	hud.set_color(Color.WHITE)
 	_last_phase = "hiding"
@@ -836,7 +832,7 @@ func _on_phase_change(phase: String) -> void:
 	print("PHASE: %s round=%d time=%.1f players=%d" % [phase, logic.round, logic.time_left, players.size()])
 	match phase:
 		"seeking":
-			hud.log_line("SEEKERS ARE IN! Cache-toi !")
+			hud.log_line("SEEKERS ARE IN! Hide!")
 			_play("flash")
 		"round_end":
 			hud.log_line("Round over!")
@@ -847,7 +843,7 @@ func _on_phase_change(phase: String) -> void:
 		"new_round":
 			_after_new_round()
 			hud.show_game()
-			hud.log_line("ROUND %d/%d — nouvelle peinture !" % [logic.round, 3])
+			hud.log_line("ROUND %d/%d — paint again!" % [logic.round, 3])
 		"match_end":
 			_show_result()
 			Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
@@ -856,18 +852,13 @@ func _show_result() -> void:
 	if logic == null:
 		return
 	var text := "ROUND %d / %d  —  %s\n\n" % [logic.round, 3, Core.MAPS[logic.map_index].name]
-	text += "Tu étais %s.\n" % _role_of(local_id)
+	text += "You were %s.\n" % _role_of(local_id)
 	var found_count := 0
 	for k in logic.found:
 		if logic.found[k]:
 			found_count += 1
-	text += "Hiders éliminés: %d / %d\n\nSCORES\n" % [found_count, maxi(0, logic.ids.size() - 1)]
-	for id in logic.scores:
-		var nm := "Player"
-		if players.has(int(id)):
-			nm = players[int(id)].name
-		text += "%s: %d\n" % [nm, logic.scores[id]]
-	text += "\nRepéré = +1   Tir réussi = +3   Survie = +1"
+	text += "Hiders eliminated: %d / %d\n" % [found_count, maxi(0, logic.ids.size() - 1)]
+	text += "\nThe seeker wins by eliminating every hider.\nSurvive until the timer ends to win as a hider."
 	if logic.phase == "match_end":
 		text += "\n\nMATCH OVER"
 	hud.show_result(text)
@@ -882,6 +873,8 @@ func _update_views(delta: float) -> void:
 			body.position = Vector3(st.x, st.y, st.z)
 		elif not is_host:
 			body.position = body.position.lerp(Vector3(st.x, st.y, st.z), clampf(delta * 12.0, 0, 1))
+		# The character always turns with the camera / look direction.
+		body.rotation.y = float(st.yaw)
 		var avatar: Dictionary = v.avatar
 		avatar.node.visible = (id != local_id) or (_role_of(id) == "HIDER")
 		var alpha := 1.0
@@ -897,7 +890,7 @@ func _update_views(delta: float) -> void:
 		var b: CharacterBody3D = views[local_id].body
 		if local_role == "HIDER":
 			# Hiders always see their own avatar from a third-person camera.
-			var dist := 3.6 if paint_mode else 4.2
+			var dist := paint_zoom if paint_mode else 4.2
 			var cp := clampf(_pitch, -0.45, 0.75)
 			var off := Vector3(sin(_yaw) * cos(cp), sin(cp) + 0.25, cos(_yaw) * cos(cp)) * dist
 			camera.position = b.position + Vector3(0, 1.1, 0) + off
@@ -914,39 +907,30 @@ func _update_hud() -> void:
 		return
 	var st: Dictionary = players[local_id]
 	var role := _role_of(local_id)
-	var hiding := ""
+	var detail := ""
 	if role == "HIDER":
-		hiding = "Camouflage %d%%  —  P = paint, reste immobile près d'un objet de la même couleur" % int(float(st.camo) * 100.0)
+		detail = "Camouflage %d%%  —  P = paint, stay still near a matching prop" % int(float(st.camo) * 100.0)
 	else:
-		hiding = "Lampe %s  —  regarder = +1 pt, CLIC GAUCHE / E = tirer (+3)" % ("ON" if st.flash else "OFF")
+		detail = "Flashlight %s  —  spotting or shooting a hider eliminates them instantly" % ("ON" if st.flash else "OFF")
 	if paint_mode:
-		hiding = "PAINT  —  couleur #%s  •  brosse %dpx  •  pipette %s" % [
-			paint_color.to_html(false), brush_size, "ON" if pipette_mode else "OFF"]
-	var scores_txt := ""
-	for id in logic.scores:
-		var nm := "P"
-		if players.has(int(id)):
-			nm = str(players[int(id)].name).substr(0, 8)
-		scores_txt += "%s %d   " % [nm, logic.scores[id]]
+		detail = "PAINT  —  colour #%s  •  brush %dpx  •  zoom %.1f  •  pipette %s" % [
+			paint_color.to_html(false), brush_size, paint_zoom, "ON" if pipette_mode else "OFF"]
 	var phase_name := str(logic.phase).to_upper()
 	if logic.phase == "hiding":
-		phase_name = "CACHETTE  %d/%d" % [logic.round, 3]
+		phase_name = "HIDING  %d/%d" % [logic.round, 3]
 	elif logic.phase == "seeking":
-		phase_name = "RECHERCHE  %d/%d" % [logic.round, 3]
+		phase_name = "SEEKING  %d/%d" % [logic.round, 3]
 	hud.update_hud({
 		"phase": phase_name,
 		"time": logic.time_left,
-		"role": "TU ES: %s" % role,
-		"hide": hiding,
-		"scores": scores_txt,
+		"role": "YOU ARE: %s" % role,
+		"hide": detail,
 	})
 
 func _process(delta: float) -> void:
 	if not running or paused:
 		return
 	_shoot_cooldown = maxf(0.0, _shoot_cooldown - delta)
-	for k in _spot_cooldown.keys():
-		_spot_cooldown[k] = maxf(0.0, float(_spot_cooldown[k]) - delta)
 
 	# Paint mode keeps the match alive (bots, timers, network) but the painter
 	# stands still so the avatar is easy to hit with the brush.
@@ -1053,7 +1037,11 @@ func _input(event: InputEvent) -> void:
 		if not running or paused:
 			return
 		if paint_mode:
-			if mb.button_index == MOUSE_BUTTON_LEFT:
+			if mb.pressed and mb.button_index == MOUSE_BUTTON_WHEEL_UP:
+				paint_zoom = clampf(paint_zoom - 0.4, 1.8, 7.0)
+			elif mb.pressed and mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+				paint_zoom = clampf(paint_zoom + 0.4, 1.8, 7.0)
+			elif mb.button_index == MOUSE_BUTTON_LEFT:
 				if mb.pressed:
 					if pipette_mode:
 						_pipette_at(mb.position)
