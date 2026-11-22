@@ -766,6 +766,14 @@ func _after_new_round() -> void:
 func _on_phase_change(phase: String) -> void:
 	print("PHASE: %s round=%d time=%.1f players=%d" % [phase, logic.round, logic.time_left, players.size()])
 	match phase:
+		"hiding":
+			# Clients receive the new round as phase "hiding", not as the
+			# host-only "new_round" event. Reset visuals and close the result
+			# panel here too, otherwise the client stays stuck on it.
+			_after_new_round()
+			hud.show_game()
+			if logic.round > 1:
+				hud.log_line("ROUND %d/%d — paint again!" % [logic.round, 3])
 		"seeking":
 			hud.log_line("SEEKERS ARE IN! Hide!")
 			_play("flash")
