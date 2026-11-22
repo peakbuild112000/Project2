@@ -11,10 +11,26 @@ sont générés par le projet : aucun asset du jeu Steam n'est reproduit.
 
 À chaque manche, un joueur est désigné **Seeker** (chercheur), les autres sont
 **Hiders** (caméléons). Les hiders commencent avec une combinaison blanche et
-doivent la peindre avec la couleur d'un élément du décor pour se camoufler.
-Rester immobile près d'un objet de la même couleur augmente le camouflage. Le
-seeker utilise une lampe torche et doit taguer tous les hiders avant la fin du
-chronomètre. 3 manches, 3 cartes générées de façon déterministe.
+doivent la peindre pour se fondre dans le décor. Rester immobile près d'un objet
+de couleur proche augmente le camouflage.
+
+Le seeker utilise une lampe torche pour repérer les hiders. **Le simple fait de
+voir un hider rapporte +1 point au seeker**, mais ne l'élimine pas : pour
+l'éliminer, il doit **tirer** dessus (+3 points). Un hider qui survit à la manche
+gagne +1 point. 3 manches, 3 cartes générées de façon déterministe.
+
+## Peindre son personnage
+
+- Appuie sur **`P`** : la caméra passe en **troisième personne**, le curseur se
+  débloque et le panneau **PAINT** apparaît.
+- Choisis une couleur **quelconque** avec le sélecteur HSV/RGB (couleurs
+  infinies), ou les raccourcis `1`-`5` pour les couleurs rapides.
+- Choisis la taille de brosse : **Petit / Moyen / Grand**.
+- **Clic-glisse sur ton avatar** pour peindre. Le trait est envoyé aux autres
+  joueurs en réseau.
+- La **Pipette** prélève la couleur sous le curseur : sur ton costume ou sur un
+  objet du décor.
+- `P` ou `Échap` pour quitter le mode Paint et reprendre la première personne.
 
 ## Commandes
 
@@ -22,14 +38,14 @@ chronomètre. 3 manches, 3 cartes générées de façon déterministe.
 | --- | --- |
 | `ZQSD` / `WASD` | Se déplacer |
 | `Shift` | Courir |
-| `Souris` | Regarder (clic dans la fenêtre pour capturer le curseur) |
+| `Souris` | Regarder (curseur capturé hors mode Paint) |
 | `Flèches` | Regarder au clavier |
-| `1`-`5` | Peindre : cyan / rose / or / vert / blanc |
-| `Tab` | Ouvrir la palette (clic sur une couleur, puis `Tab` pour fermer) |
+| `P` | Activer / quitter le mode Paint |
+| `1`-`5` | Couleurs rapides (peinture intégrale) |
 | `F` | Lampe torche (seeker) |
-| `E` ou clic droit | Taguer (seeker) |
-| `Échap` | Pause / reprise |
-| `L` | Quitter la partie (depuis la pause ou la palette) |
+| `Clic gauche` / `E` | Tirer (seeker) — élimine un hider touché |
+| `Échap` | Pause / reprise, ou quitter le mode Paint |
+| `L` | Quitter la partie (depuis la pause ou le mode Paint) |
 | `Entrée` | Lancer la partie en mode hôte |
 
 ## Lancer le projet
@@ -51,6 +67,9 @@ Le mode **HOST SESSION** ouvre un serveur WebSocket autoritatif sur le port
 via un tunnel Cloudflare) car GitHub Pages est en HTTPS. L'hôte appuie sur
 `Entrée` pour démarrer ; les places vides sont comblées par des bots.
 
+Les couleurs peintes et les tirs sont synchronisés : le serveur est autoritatif,
+les clients n'envoient que leurs intentions.
+
 L'addon **Godot Super-Wakatime** (v2.1.0) est installé dans `addons/` et activé
 dans `project.godot`. Il ignore les exécutions headless et la CI.
 
@@ -61,9 +80,9 @@ project.godot          configuration, autoloads Core et Net, plugin Wakatime
 scenes/Main.tscn       scène unique
 scripts/Core.gd        palette, cartes, textures et sons procéduraux
 scripts/Net.gd         transport WebSocket (serveur/client)
-scripts/Match.gd       règles de manches, rôles et scores
-scripts/World.gd       arènes, avatar et camouflage
-scripts/HUD.gd         interface assemblée en code
-scripts/Game.gd        contrôleur principal, bots, physique, caméra
+scripts/Match.gd       règles de manches, rôles, score (repéré / tir / survie)
+scripts/World.gd       arènes, avatar à texture peignable, camouflage
+scripts/HUD.gd         interface, sélecteur de couleurs, brosses, pipette
+scripts/Game.gd        contrôleur principal, paint, tir, bots, physique, caméra
 addons/                plugin Godot Super-Wakatime
 ```

@@ -1,5 +1,8 @@
 extends RefCounted
 ## Builds the three original arena layouts from boxes and generated materials.
+## Avatars carry a paintable ImageTexture (unlimited colours, brush strokes).
+
+const AVATAR_TEX := 256
 
 var root: Node3D
 var props: Array = [] # each: {"pos": Vector3, "color": int}
@@ -60,17 +63,21 @@ func destroy() -> void:
 	props.clear()
 	spawns.clear()
 
-## How well a hider of the given paint color blends at this position (0..1).
-func camo_at(pos: Vector3, color: int) -> float:
+## How well a hider painted `color` blends at this position (0..1).
+## Uses real colour distance, so any painted colour can match the decor.
+func camo_at(pos: Vector3, color: Color) -> float:
 	var best := 0.0
 	for p in props:
-		if int(p.color) != color:
+		var pd: Dictionary = p
+		var prop_col: Color = Core.COLORS[int(pd.color)]
+		var d := pos.distance_to(Vector3(pd.pos.x, 0, pd.pos.z))
+		if d >= 5.5:
 			continue
-		var d := pos.distance_to(Vector3(p.pos.x, 0, p.pos.z))
-		if d < 5.5:
-			var v := 1.0 - d / 5.5
-			if v > best:
-				best = v
+		var diff := Vector4(color.r - prop_col.r, color.g - prop_col.g, color.b - prop_col.b, 0)
+		var closeness: float = 1.0 - clampf(diff.length() / 1.25, 0.0, 1.0)
+		var v := closeness * (1.0 - d / 5.5)
+		if v > best:
+			best = v
 	return best
 
 func spawn(i: int) -> Vector3:
@@ -113,18 +120,30 @@ func _cylinder(pos: Vector3, radius: float, height: float, mat: Material) -> voi
 	body.add_child(mesh)
 	root.add_child(body)
 
-## Low-poly human avatar. Returns {"node": Node3D, "mat": StandardMaterial3D}.
-func make_avatar(parent: Node3D, color: int) -> Dictionary:
+## Low-poly human avatar with its own paintable texture.
+## Returns {"node", "mat", "image", "texture"}.
+func make_avatar(parent: Node3D, color: Color) -> Dictionary:
 	var holder := Node3D.new()
 	parent.add_child(holder)
-	var mat := Core.material(Core.COLORS[color])
+
+	var img := Image.create(AVATAR_TEX, AVATAR_TEX, false, Image.FORMAT_RGBA8)
+	img.fill(color)
+	var tex := ImageTexture.create_from_image(img)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_texture = tex
+	mat.albedo_color = Color.WHITE
+	mat.roughness = 0.82
+	mat.metallic = 0.0
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+
 	_part(holder, BoxMesh.new(), Vector3(0.62, 0.78, 0.34), Vector3(0, 1.05, 0), mat)
 	_part(holder, SphereMesh.new(), Vector3(0.42, 0.42, 0.42), Vector3(0, 1.68, 0), mat)
 	_part(holder, BoxMesh.new(), Vector3(0.18, 0.66, 0.18), Vector3(-0.42, 1.02, 0), mat)
 	_part(holder, BoxMesh.new(), Vector3(0.18, 0.66, 0.18), Vector3(0.42, 1.02, 0), mat)
 	_part(holder, BoxMesh.new(), Vector3(0.22, 0.66, 0.22), Vector3(-0.17, 0.34, 0), mat)
 	_part(holder, BoxMesh.new(), Vector3(0.22, 0.66, 0.22), Vector3(0.17, 0.34, 0), mat)
-	return {"node": holder, "mat": mat}
+
+	return {"node": holder, "mat": mat, "image": img, "texture": tex}
 
 func _part(parent: Node3D, mesh: Mesh, size: Vector3, pos: Vector3, mat: Material) -> void:
 	var mi := MeshInstance3D.new()

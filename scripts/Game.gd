@@ -37,10 +37,22 @@ var _net_clock := 0.0
 var _step_clock := 0.0
 var _my_input := {"fw": 0.0, "sd": 0.0, "sprint": false, "jump": false}
 
+# --- painting -------------------------------------------------------------
+var paint_mode := false
+var paint_color := Color.WHITE
+var brush_size := 20
+var pipette_mode := false
+var _paint_hold := false
+var _spot_cooldown := {}
+var _shoot_cooldown := 0.0
+
 func _ready() -> void:
 	hud = HUDScript.new()
 	add_child(hud)
 	hud.ui.connect(_on_ui)
+	hud.paint_color_changed.connect(_on_paint_color)
+	hud.brush_changed.connect(_on_brush_changed)
+	hud.pipette_toggled.connect(_on_pipette_toggled)
 
 	audio = AudioStreamPlayer.new()
 	add_child(audio)
@@ -90,14 +102,37 @@ func _on_ui(action: String, value: int) -> void:
 		"practice": start_offline()
 		"host": start_host()
 		"join": start_client()
-		"help": hud.set_menu_info("HIDERS: press 1-5 to paint your white suit the colour of a nearby prop, then stand still. Matching colour + stillness = camouflage. SEEKERS: F toggles the flashlight, E tags a hider at close range. You can also click the colour swatches with Tab open.")
-		"paint": try_paint(value)
+		"help": hud.set_menu_info("HIDERS: press P to enter PAINT mode, pick any colour, choose a brush and drag on your avatar with the mouse. Pipette samples a colour from your suit or the decor. Stand still near matching props to camouflage. SEEKERS: F toggles the flashlight. SEEING a hider gives you +1 point, but you must LEFT CLICK (or E) to SHOOT them and eliminate them.")
+		"paint": try_preset_paint(value)
+		"pipette": _toggle_pipette()
 		"leave": leave_match()
+
+func _on_paint_color(c: Color) -> void:
+	paint_color = c
+	if pipette_mode:
+		_toggle_pipette()
+
+func _on_brush_changed(size: int) -> void:
+	brush_size = size
+
+func _on_pipette_toggled() -> void:
+	_toggle_pipette()
+
+func _toggle_pipette() -> void:
+	pipette_mode = not pipette_mode
+	hud.set_pipette(pipette_mode)
 
 func _cleanup_match() -> void:
 	running = false
 	paused = false
 	palette_open = false
+	paint_mode = false
+	pipette_mode = false
+	_paint_hold = false
+	hud.set_paint_mode(false)
+	hud.set_pipette(false)
+	_spot_cooldown.clear()
+	_shoot_cooldown = 0.0
 	if Net.message_received.is_connected(_on_net_message):
 		Net.message_received.disconnect(_on_net_message)
 	if Net.peer_connected.is_connected(_on_peer_connected):
@@ -133,6 +168,7 @@ func _create_player(id: int, pname: String, is_bot: bool) -> void:
 		return
 	var body := CharacterBody3D.new()
 	body.position = world.spawn(int(id) % 8)
+	body.set_meta("player_id", id)
 	var col := CollisionShape3D.new()
 	var cap := CapsuleShape3D.new()
 	cap.radius = 0.36
@@ -140,13 +176,14 @@ func _create_player(id: int, pname: String, is_bot: bool) -> void:
 	col.shape = cap
 	body.add_child(col)
 	scene_root.add_child(body)
-	var avatar: Dictionary = world.make_avatar(body, 4)
+	var avatar: Dictionary = world.make_avatar(body, Color.WHITE)
 	avatar.node.visible = (id != local_id)
 	views[id] = {"body": body, "avatar": avatar}
 	players[id] = {
 		"id": id, "name": pname, "x": body.position.x, "y": body.position.y,
-		"z": body.position.z, "yaw": 0.0, "color": 4, "flash": false,
-		"camo": 0.0, "seen": true, "found": false, "bot": is_bot,
+		"z": body.position.z, "yaw": 0.0, "color": Color.WHITE, "flash": false,
+		"camo": 0.0, "seen": false, "was_seen": false, "found": false, "bot": is_bot,
+		"bot_target": null,
 		"input": {"fw": 0.0, "sd": 0.0, "sprint": false, "jump": false},
 	}
 
@@ -171,7 +208,7 @@ func start_offline() -> void:
 	logic.start_round()
 	_after_new_round()
 	hud.show_game()
-	hud.log_line("PRACTICE: 3 bots joined. Rounds start now.")
+	hud.log_line("PRACTICE: press P to paint, F for flashlight, left click to shoot.")
 	_capture()
 
 func start_host() -> void:
@@ -233,7 +270,8 @@ func _begin_host_match() -> void:
 	for id in logic.ids:
 		var st: Dictionary = players.get(id, {})
 		if not st.is_empty():
-			st.color = 4
+			st.color = Color.WHITE
+			_apply_fill(int(id), Color.WHITE)
 	logic.start_round()
 	running = true
 	print("HOST MATCH STARTED: %s" % str(logic.ids))
@@ -290,14 +328,25 @@ func _on_net_message(from_id: int, msg: Dictionary) -> void:
 						"jump": bool(msg.get("jump", false)),
 					}
 					st.yaw = float(msg.get("yaw", 0))
-			"paint":
-				if players.has(from_id) and _role_of(from_id) == "HIDER":
-					players[from_id].color = clampi(int(msg.get("c", 4)), 0, 4)
+			"paint_stroke":
+				if players.has(from_id):
+					var c := Color.from_string(str(msg.get("c", "#ffffff")), Color.WHITE)
+					var u := clampf(float(msg.get("u", 0)), 0, 1)
+					var v := clampf(float(msg.get("v", 0)), 0, 1)
+					var size := clampi(int(msg.get("s", 20)), 2, 64)
+					_apply_stroke(from_id, u, v, c, size)
+					Net.broadcast({"t": "paint_stroke", "id": from_id,
+						"u": u, "v": v, "c": c.to_html(false), "s": size})
+			"paint_fill":
+				if players.has(from_id):
+					var c := Color.from_string(str(msg.get("c", "#ffffff")), Color.WHITE)
+					_apply_fill(from_id, c)
+					Net.broadcast({"t": "paint_fill", "id": from_id, "c": c.to_html(false)})
 			"flash":
 				if players.has(from_id):
 					players[from_id].flash = not bool(players[from_id].flash)
-			"tag":
-				try_tag(from_id)
+			"shoot":
+				_resolve_shot(from_id)
 		return
 
 	match t:
@@ -320,6 +369,17 @@ func _on_net_message(from_id: int, msg: Dictionary) -> void:
 			_capture()
 		"snapshot":
 			_apply_snapshot(msg)
+		"paint_stroke":
+			var pid := int(msg.get("id", -1))
+			if players.has(pid):
+				_apply_stroke(pid, clampf(float(msg.get("u", 0)), 0, 1),
+					clampf(float(msg.get("v", 0)), 0, 1),
+					Color.from_string(str(msg.get("c", "#ffffff")), Color.WHITE),
+					clampi(int(msg.get("s", 20)), 2, 64))
+		"paint_fill":
+			var pid := int(msg.get("id", -1))
+			if players.has(pid):
+				_apply_fill(pid, Color.from_string(str(msg.get("c", "#ffffff")), Color.WHITE))
 		"event":
 			hud.log_line(str(msg.get("msg", "")))
 
@@ -353,10 +413,10 @@ func _apply_snapshot(s: Dictionary) -> void:
 		st.y = float(pd.get("y", st.y))
 		st.z = float(pd.get("z", st.z))
 		st.yaw = float(pd.get("yaw", st.yaw))
-		st.color = clampi(int(pd.get("color", 4)), 0, 4)
+		st.color = Color.from_string(str(pd.get("col", "#ffffff")), Color.WHITE)
 		st.flash = bool(pd.get("flash", false))
 		st.camo = clampf(float(pd.get("camo", 0)), 0, 1)
-		st.seen = bool(pd.get("seen", true))
+		st.seen = bool(pd.get("seen", false))
 		st.found = bool(pd.get("found", false))
 	var phase_now: String = str(logic.phase)
 	if phase_now != _last_phase:
@@ -369,7 +429,7 @@ func _snapshot() -> Dictionary:
 		var st: Dictionary = players[id]
 		list.append({
 			"id": id, "n": st.name, "x": st.x, "y": st.y, "z": st.z,
-			"yaw": st.yaw, "color": st.color, "flash": st.flash,
+			"yaw": st.yaw, "col": st.color.to_html(false), "flash": st.flash,
 			"camo": st.camo, "seen": st.seen, "found": st.found,
 		})
 	var base: Dictionary = logic.snapshot()
@@ -388,18 +448,126 @@ func _play(kind: String) -> void:
 	audio.stream = Core.sfx(kind)
 	audio.play()
 
-func try_paint(idx: int) -> void:
+# ---------------------------------------------------------------- painting ----
+
+func _avatar_screen_rect() -> Rect2:
+	if not views.has(local_id):
+		return Rect2()
+	var body: CharacterBody3D = views[local_id].body
+	var pts: Array = [
+		camera.unproject_position(body.position + Vector3(0, 1.95, 0)),
+		camera.unproject_position(body.position + Vector3(0, 0.05, 0)),
+		camera.unproject_position(body.position + Vector3(-0.6, 1.0, 0)),
+		camera.unproject_position(body.position + Vector3(0.6, 1.0, 0)),
+	]
+	var minx := INF
+	var miny := INF
+	var maxx := -INF
+	var maxy := -INF
+	for p in pts:
+		minx = minf(minx, p.x)
+		miny = minf(miny, p.y)
+		maxx = maxf(maxx, p.x)
+		maxy = maxf(maxy, p.y)
+	return Rect2(minx, miny, maxx - minx, maxy - miny)
+
+func _apply_stroke(id: int, u: float, v: float, color: Color, size: int) -> void:
+	if not views.has(id):
+		return
+	var av: Dictionary = views[id].avatar
+	var img: Image = av.image
+	var cx: int = int(clampf(u, 0, 1) * float(img.get_width() - 1))
+	var cy: int = int(clampf(v, 0, 1) * float(img.get_height() - 1))
+	var r: int = clampi(size, 2, 64)
+	for y in range(maxi(0, cy - r), mini(img.get_height(), cy + r + 1)):
+		for x in range(maxi(0, cx - r), mini(img.get_width(), cx + r + 1)):
+			var dx := x - cx
+			var dy := y - cy
+			if dx * dx + dy * dy <= r * r:
+				img.set_pixel(x, y, color)
+	av.texture.update(img)
+	if players.has(id):
+		players[id].color = color
+
+func _apply_fill(id: int, color: Color) -> void:
+	if not views.has(id):
+		return
+	var av: Dictionary = views[id].avatar
+	var img: Image = av.image
+	img.fill(color)
+	av.texture.update(img)
+	if players.has(id):
+		players[id].color = color
+
+func try_preset_paint(idx: int) -> void:
 	if not running or idx < 0 or idx >= Core.COLORS.size():
 		return
-	if _role_of(local_id) != "HIDER":
-		hud.log_line("Only hiders can paint.")
-		return
+	var c: Color = Core.COLORS[idx]
+	paint_color = c
+	hud.set_color(c)
+	_apply_fill(local_id, c)
 	if is_host:
-		players[local_id].color = idx
-		hud.log_line("Painted %s." % Core.COLOR_NAMES[idx])
+		Net.broadcast({"t": "paint_fill", "id": local_id, "c": c.to_html(false)})
 	else:
-		Net.send_to_host({"t": "paint", "c": idx})
+		Net.send_to_host({"t": "paint_fill", "c": c.to_html(false)})
 	_play("paint")
+	hud.log_line("Couleur: %s" % Core.COLOR_NAMES[idx])
+
+func _set_paint_mode(on: bool) -> void:
+	if not running:
+		return
+	paint_mode = on
+	_paint_hold = false
+	hud.set_paint_mode(on)
+	if views.has(local_id):
+		views[local_id].avatar.node.visible = on
+	pipette_mode = false
+	hud.set_pipette(false)
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE if on else Input.MOUSE_MODE_CAPTURED)
+
+func _paint_at(pos: Vector2) -> void:
+	if not running or not views.has(local_id):
+		return
+	var rect := _avatar_screen_rect()
+	if rect.size.x < 8.0 or rect.size.y < 8.0 or not rect.has_point(pos):
+		return
+	var u := clampf((pos.x - rect.position.x) / rect.size.x, 0, 1)
+	var v := clampf(1.0 - (pos.y - rect.position.y) / rect.size.y, 0, 1)
+	_apply_stroke(local_id, u, v, paint_color, brush_size)
+	if is_host:
+		Net.broadcast({"t": "paint_stroke", "id": local_id, "u": u, "v": v,
+			"c": paint_color.to_html(false), "s": brush_size})
+	else:
+		Net.send_to_host({"t": "paint_stroke", "u": u, "v": v,
+			"c": paint_color.to_html(false), "s": brush_size})
+
+func _pipette_at(pos: Vector2) -> void:
+	var picked := Color.WHITE
+	var rect := _avatar_screen_rect()
+	if rect.size.x >= 8.0 and rect.size.y >= 8.0 and rect.has_point(pos):
+		var av: Dictionary = views[local_id].avatar
+		var img: Image = av.image
+		var u := clampf((pos.x - rect.position.x) / rect.size.x, 0, 1)
+		var v := clampf(1.0 - (pos.y - rect.position.y) / rect.size.y, 0, 1)
+		picked = img.get_pixel(int(u * float(img.get_width() - 1)), int(v * float(img.get_height() - 1)))
+	else:
+		var from := camera.project_ray_origin(pos)
+		var dir := camera.project_ray_normal(pos)
+		var q := PhysicsRayQueryParameters3D.create(from, from + dir * 100.0)
+		var hit := get_viewport().world_3d.direct_space_state.intersect_ray(q)
+		if not hit.is_empty() and hit.collider is StaticBody3D:
+			for c in hit.collider.get_children():
+				if c is MeshInstance3D and c.material_override is StandardMaterial3D:
+					picked = c.material_override.albedo_color
+					break
+	paint_color = picked
+	hud.set_color(picked)
+	pipette_mode = false
+	hud.set_pipette(false)
+	hud.log_line("Pipette: #%s" % picked.to_html(false))
+	_play("click")
+
+# ---------------------------------------------------------------- shooting ----
 
 func try_flash() -> void:
 	if not running or _role_of(local_id) != "SEEKER" or not players.has(local_id):
@@ -410,38 +578,55 @@ func try_flash() -> void:
 		Net.send_to_host({"t": "flash"})
 	_play("flash")
 
-func try_tag(by_id: int = -1) -> void:
+func _try_shoot(by_id: int = -1) -> void:
 	var who := local_id if by_id < 0 else by_id
 	if not running or logic == null or logic.phase != "seeking":
 		return
 	if _role_of(who) != "SEEKER":
 		if who == local_id:
-			hud.log_line("Only the seeker can tag.")
+			hud.log_line("Seul le seeker peut tirer.")
+		return
+	if who == local_id and _shoot_cooldown > 0.0:
 		return
 	if not is_host:
 		if who == local_id:
-			Net.send_to_host({"t": "tag"})
+			Net.send_to_host({"t": "shoot"})
+			_shoot_cooldown = 0.28
 		return
-	var me: Dictionary = players.get(who, {})
-	if me.is_empty():
+	_resolve_shot(who)
+	if who == local_id:
+		_shoot_cooldown = 0.28
+
+func _resolve_shot(by_id: int) -> void:
+	if logic == null or logic.phase != "seeking" or not players.has(by_id):
 		return
-	var best := -1
-	var best_d := 3.2
-	for id in players:
-		if id == who or logic.found.get(id, false):
-			continue
-		var st: Dictionary = players[id]
-		var d := Vector3(st.x - me.x, 0, st.z - me.z).length()
-		if d < best_d:
-			best_d = d
-			best = id
-	if best < 0:
+	var me: Dictionary = players[by_id]
+	var from := Vector3(float(me.x), float(me.y) + 1.6, float(me.z))
+	var dir: Vector3
+	if by_id == local_id and is_host:
+		dir = -camera.transform.basis.z
+	else:
+		var hy := float(me.yaw)
+		dir = Vector3(-sin(hy), 0, -cos(hy))
+	var q := PhysicsRayQueryParameters3D.create(from, from + dir.normalized() * 45.0)
+	q.exclude = [views[by_id].body.get_rid()]
+	var hit := get_viewport().world_3d.direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		_play("flash")
 		return
-	if logic.tag(best):
-		var name := str(players[best].name)
-		hud.log_line("%s tagged %s!" % [players[who].name, name])
+	var col: Object = hit.collider
+	if not (col is CharacterBody3D) or not col.has_meta("player_id"):
+		_play("flash")
+		return
+	var target := int(col.get_meta("player_id"))
+	if target == by_id or _role_of(target) != "HIDER" or logic.found.get(target, false):
+		_play("flash")
+		return
+	if logic.tag(target):
+		var name := str(players[target].name)
+		hud.log_line("%s a TIRE sur %s : éliminé ! +3" % [players[by_id].name, name])
 		_play("found")
-		Net.broadcast({"t": "event", "msg": "%s tagged %s!" % [players[who].name, name]})
+		Net.broadcast({"t": "event", "msg": "%s a tiré sur %s : éliminé !" % [players[by_id].name, name]})
 		if logic.phase == "round_end":
 			_on_phase_change("round_end")
 
@@ -468,30 +653,27 @@ func _bot_input(st: Dictionary, delta: float) -> Dictionary:
 			if best > 2.4:
 				inp.fw = 1.0
 			elif logic.phase == "seeking":
-				try_tag(st.id)
+				_resolve_shot(st.id)
 		else:
 			inp.fw = 0.35
 	else:
-		if int(st.color) == 4 and not world.props.is_empty():
-			var pick: Dictionary = world.props[randi() % world.props.size()]
-			st.color = int(pick.color)
-		var goal: Vector3 = here
-		var best_d := 1.0e9
-		for p in world.props:
-			var pd: Dictionary = p
-			if int(pd.color) != int(st.color):
-				continue
-			var d := here.distance_to(Vector3(pd.pos.x, 0, pd.pos.z))
-			if d < best_d:
-				best_d = d
-				goal = Vector3(pd.pos.x, 0, pd.pos.z)
-		if best_d > 1.8:
-			var to := goal - here
-			var want: float = atan2(-to.x, -to.z)
-			st.yaw = lerp_angle(st.yaw, want, clampf(delta * 2.0, 0, 1))
-			inp.fw = 0.75
-		else:
-			inp.fw = 0.0
+		if st.bot_target == null and not world.props.is_empty():
+			st.bot_target = world.props[randi() % world.props.size()]
+			var pc: Color = Core.COLORS[int(st.bot_target.color)]
+			var dcol := Vector4(st.color.r - pc.r, st.color.g - pc.g, st.color.b - pc.b, 0)
+			if dcol.length() > 0.05:
+				_apply_fill(st.id, pc)
+		if st.bot_target != null:
+			var goal: Vector3 = st.bot_target.pos
+			var goal_flat := Vector3(goal.x, 0, goal.z)
+			var d := here.distance_to(goal_flat)
+			if d > 1.8:
+				var to := goal_flat - here
+				var want: float = atan2(-to.x, -to.z)
+				st.yaw = lerp_angle(st.yaw, want, clampf(delta * 2.0, 0, 1))
+				inp.fw = 0.75
+			else:
+				inp.fw = 0.0
 	return inp
 
 func _simulate(delta: float) -> void:
@@ -522,7 +704,6 @@ func _simulate(delta: float) -> void:
 		st.x = body.position.x
 		st.y = body.position.y
 		st.z = body.position.z
-		# out-of-bounds safety
 		if absf(st.x) > 26.0 or absf(st.z) > 26.0 or st.y < -3.0:
 			body.position = world.spawn(int(id) % 8)
 			body.velocity = Vector3.ZERO
@@ -533,7 +714,7 @@ func _update_camo() -> void:
 		var st: Dictionary = players[id]
 		var body: CharacterBody3D = views[id].body
 		var speed := Vector2(body.velocity.x, body.velocity.z).length()
-		var base: float = world.camo_at(Vector3(st.x, 0, st.z), int(st.color))
+		var base: float = world.camo_at(Vector3(st.x, 0, st.z), st.color)
 		var still := 1.0 if speed < 0.65 else 0.0
 		st.camo = clampf(base * 0.8 + still * 0.2, 0.0, 1.0)
 		var seen := true
@@ -552,34 +733,51 @@ func _update_camo() -> void:
 					seen = true
 			elif st.camo < 0.45 and d < 10.0:
 				seen = true
+		if seen and not bool(st.was_seen) and float(_spot_cooldown.get(id, 0.0)) <= 0.0:
+			if id != logic.hunter_id and logic.phase == "seeking":
+				logic.spot()
+				_spot_cooldown[id] = 2.5
+				var msg := "%s est REPERE ! +1 pour le seeker" % str(players[id].name)
+				hud.log_line(msg)
+				Net.broadcast({"t": "event", "msg": msg})
+		st.was_seen = seen
 		st.seen = seen
 
 func _after_new_round() -> void:
 	for id in players:
 		var st: Dictionary = players[id]
-		st.color = 4
+		st.color = Color.WHITE
 		st.found = false
 		st.camo = 0.0
 		st.flash = false
+		st.seen = false
+		st.was_seen = false
+		st.bot_target = null
+		_apply_fill(int(id), Color.WHITE)
 		var body: CharacterBody3D = views[id].body
 		body.position = world.spawn(int(id) % 8)
 		body.velocity = Vector3.ZERO
+	_spot_cooldown.clear()
+	paint_color = Color.WHITE
+	hud.set_color(Color.WHITE)
 	_last_phase = "hiding"
 
 func _on_phase_change(phase: String) -> void:
 	print("PHASE: %s round=%d time=%.1f players=%d" % [phase, logic.round, logic.time_left, players.size()])
 	match phase:
 		"seeking":
-			hud.log_line("SEEKERS ARE IN! Hide now!")
+			hud.log_line("SEEKERS ARE IN! Cache-toi !")
 			_play("flash")
 		"round_end":
 			hud.log_line("Round over!")
 			_play("tag")
 			_show_result()
+			if paint_mode:
+				_set_paint_mode(false)
 		"new_round":
 			_after_new_round()
 			hud.show_game()
-			hud.log_line("ROUND %d/%d — fresh paint!" % [logic.round, 3])
+			hud.log_line("ROUND %d/%d — nouvelle peinture !" % [logic.round, 3])
 		"match_end":
 			_show_result()
 			Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
@@ -588,19 +786,20 @@ func _show_result() -> void:
 	if logic == null:
 		return
 	var text := "ROUND %d / %d  —  %s\n\n" % [logic.round, 3, Core.MAPS[logic.map_index].name]
-	text += "You were the %s.\n" % _role_of(local_id)
+	text += "Tu étais %s.\n" % _role_of(local_id)
 	var found_count := 0
 	for k in logic.found:
 		if logic.found[k]:
 			found_count += 1
-	text += "Hiders found: %d / %d\n\nSCORES\n" % [found_count, maxi(0, logic.ids.size() - 1)]
+	text += "Hiders éliminés: %d / %d\n\nSCORES\n" % [found_count, maxi(0, logic.ids.size() - 1)]
 	for id in logic.scores:
 		var nm := "Player"
 		if players.has(int(id)):
 			nm = players[int(id)].name
 		text += "%s: %d\n" % [nm, logic.scores[id]]
+	text += "\nRepéré = +1   Tir réussi = +3   Survie = +1"
 	if logic.phase == "match_end":
-		text += "\nMATCH OVER"
+		text += "\n\nMATCH OVER"
 	hud.show_result(text)
 
 func _update_views(delta: float) -> void:
@@ -614,7 +813,6 @@ func _update_views(delta: float) -> void:
 		elif not is_host:
 			body.position = body.position.lerp(Vector3(st.x, st.y, st.z), clampf(delta * 12.0, 0, 1))
 		var avatar: Dictionary = v.avatar
-		var c: Color = Core.COLORS[int(st.color)]
 		var alpha := 1.0
 		if id != local_id:
 			if local_role == "SEEKER" and _role_of(id) == "HIDER" and not bool(st.seen):
@@ -623,13 +821,18 @@ func _update_views(delta: float) -> void:
 				alpha = 0.32
 			if bool(st.found):
 				alpha = 0.14
-		avatar.mat.albedo_color = Color(c.r, c.g, c.b, alpha)
+		avatar.mat.albedo_color = Color(1, 1, 1, alpha)
 	if local_id > 0 and views.has(local_id):
 		var b: CharacterBody3D = views[local_id].body
-		camera.position = b.position + Vector3(0, 1.62, 0)
-		camera.rotation = Vector3(_pitch, _yaw, 0)
+		if paint_mode:
+			var back := Vector3(sin(_yaw), 0, cos(_yaw)) * 4.2
+			camera.position = b.position + Vector3(0, 2.5, 0) + back
+			camera.look_at(b.position + Vector3(0, 1.0, 0))
+		else:
+			camera.position = b.position + Vector3(0, 1.62, 0)
+			camera.rotation = Vector3(_pitch, _yaw, 0)
 		var me: Dictionary = players[local_id]
-		flashlight.visible = bool(me.flash) and local_role == "SEEKER"
+		flashlight.visible = bool(me.flash) and local_role == "SEEKER" and not paint_mode
 
 func _update_hud() -> void:
 	if logic == null or not players.has(local_id):
@@ -638,9 +841,12 @@ func _update_hud() -> void:
 	var role := _role_of(local_id)
 	var hiding := ""
 	if role == "HIDER":
-		hiding = "Camouflage %d%%  —  match a nearby colour, stand still" % int(float(st.camo) * 100.0)
+		hiding = "Camouflage %d%%  —  P = paint, reste immobile près d'un objet de la même couleur" % int(float(st.camo) * 100.0)
 	else:
-		hiding = "Flashlight %s  —  E / right click to tag" % ("ON" if st.flash else "OFF")
+		hiding = "Lampe %s  —  regarder = +1 pt, CLIC GAUCHE / E = tirer (+3)" % ("ON" if st.flash else "OFF")
+	if paint_mode:
+		hiding = "PAINT  —  couleur #%s  •  brosse %dpx  •  pipette %s" % [
+			paint_color.to_html(false), brush_size, "ON" if pipette_mode else "OFF"]
 	var scores_txt := ""
 	for id in logic.scores:
 		var nm := "P"
@@ -649,20 +855,29 @@ func _update_hud() -> void:
 		scores_txt += "%s %d   " % [nm, logic.scores[id]]
 	var phase_name := str(logic.phase).to_upper()
 	if logic.phase == "hiding":
-		phase_name = "HIDING  %d/%d" % [logic.round, 3]
+		phase_name = "CACHETTE  %d/%d" % [logic.round, 3]
 	elif logic.phase == "seeking":
-		phase_name = "SEEKING  %d/%d" % [logic.round, 3]
+		phase_name = "RECHERCHE  %d/%d" % [logic.round, 3]
 	hud.update_hud({
 		"phase": phase_name,
 		"time": logic.time_left,
-		"role": "YOU ARE: %s" % role,
+		"role": "TU ES: %s" % role,
 		"hide": hiding,
 		"scores": scores_txt,
 	})
 
 func _process(delta: float) -> void:
-	if not running or paused or palette_open:
+	if not running or paused:
 		return
+	_shoot_cooldown = maxf(0.0, _shoot_cooldown - delta)
+	for k in _spot_cooldown.keys():
+		_spot_cooldown[k] = maxf(0.0, float(_spot_cooldown[k]) - delta)
+
+	if paint_mode:
+		_update_views(delta)
+		_update_hud()
+		return
+
 	if _keys.get(KEY_LEFT, false):
 		_yaw += 2.0 * delta
 	if _keys.get(KEY_RIGHT, false):
@@ -724,33 +939,49 @@ func _input(event: InputEvent) -> void:
 		if not k.pressed or k.echo:
 			return
 		match k.keycode:
-			KEY_1: try_paint(0)
-			KEY_2: try_paint(1)
-			KEY_3: try_paint(2)
-			KEY_4: try_paint(3)
-			KEY_5: try_paint(4)
+			KEY_1: try_preset_paint(0)
+			KEY_2: try_preset_paint(1)
+			KEY_3: try_preset_paint(2)
+			KEY_4: try_preset_paint(3)
+			KEY_5: try_preset_paint(4)
+			KEY_P: _set_paint_mode(not paint_mode)
 			KEY_F: try_flash()
-			KEY_E: try_tag()
-			KEY_TAB:
-				if running:
-					palette_open = not palette_open
-					Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE if palette_open else Input.MOUSE_MODE_CAPTURED)
-			KEY_ESCAPE: _toggle_pause()
+			KEY_E: _try_shoot()
+			KEY_ESCAPE:
+				if paint_mode:
+					_set_paint_mode(false)
+				else:
+					_toggle_pause()
 			KEY_L:
-				if running and (paused or palette_open):
+				if running and (paused or paint_mode):
 					leave_match()
 			KEY_ENTER:
 				if mode == "host" and not running:
 					_begin_host_match()
 	elif event is InputEventMouseMotion:
-		if running and not paused and not palette_open and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
-			var m: InputEventMouseMotion = event
-			_yaw -= m.relative.x * 0.0026
-			_pitch = clampf(_pitch - m.relative.y * 0.0026, -1.2, 1.2)
+		var m: InputEventMouseMotion = event
+		if running and not paused:
+			if paint_mode and _paint_hold:
+				_paint_at(m.position)
+			elif not paint_mode and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
+				_yaw -= m.relative.x * 0.0026
+				_pitch = clampf(_pitch - m.relative.y * 0.0026, -1.2, 1.2)
 	elif event is InputEventMouseButton:
 		var mb: InputEventMouseButton = event
-		if mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT:
-			try_tag()
+		if not running or paused:
+			return
+		if paint_mode:
+			if mb.button_index == MOUSE_BUTTON_LEFT:
+				if mb.pressed:
+					if pipette_mode:
+						_pipette_at(mb.position)
+					else:
+						_paint_hold = true
+						_paint_at(mb.position)
+				else:
+					_paint_hold = false
+		elif mb.pressed and (mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT):
+			_try_shoot()
 
 func _toggle_pause() -> void:
 	if not running:

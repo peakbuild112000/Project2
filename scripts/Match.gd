@@ -59,7 +59,7 @@ func finish(seeker_won: bool) -> String:
 	phase = "round_end"
 	time_left = RESULT_SECONDS
 	if seeker_won:
-		scores[hunter_id] = int(scores.get(hunter_id, 0)) + 1
+		scores[hunter_id] = int(scores.get(hunter_id, 0)) + 2
 	else:
 		for id in ids:
 			if id != hunter_id and not found.get(id, false):
@@ -72,6 +72,14 @@ func all_found() -> bool:
 			return false
 	return true
 
+## The seeker merely SEEING a hider earns a point. Does not eliminate.
+func spot() -> bool:
+	if phase != "seeking":
+		return false
+	scores[hunter_id] = int(scores.get(hunter_id, 0)) + 1
+	return true
+
+## The seeker must SHOOT a hider to eliminate them.
 func tag(hider_id: int) -> bool:
 	if phase != "seeking":
 		return false
@@ -80,6 +88,7 @@ func tag(hider_id: int) -> bool:
 	if all_found():
 		return false
 	found[hider_id] = true
+	scores[hunter_id] = int(scores.get(hunter_id, 0)) + 3
 	if all_found():
 		finish(true)
 	return true
