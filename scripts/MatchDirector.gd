@@ -81,7 +81,7 @@ func _add_player(id: int, name: String, bot: bool) -> void:
 		"name": name,
 		"bot": bot,
 		"x": 0.0, "z": 0.0, "yaw": 0.0,
-		"color": (id - 1) % 4,
+		"color": GameState.WHITE,
 		"speed": 0.0,
 		"stamina": 1.0,
 		"hide": 0.0,
@@ -153,7 +153,7 @@ func update_state(id: int, msg: Dictionary) -> void:
 	p["x"] = nx
 	p["z"] = nz
 	p["yaw"] = float(msg.get("yaw", p["yaw"]))
-	p["color"] = wrapi(int(msg.get("c", p["color"])), 0, 4)
+	p["color"] = wrapi(int(msg.get("c", p["color"])), 0, GameState.PALETTE.size())
 	p["speed"] = clampf(float(msg.get("sp", 0.0)), 0.0, MAX_SPEED)
 	p["stamina"] = clampf(float(msg.get("st", 1.0)), 0.0, 1.0)
 	p["flash"] = bool(msg.get("fl", false))
@@ -225,7 +225,8 @@ func start_round() -> void:
 		p["x"] = sp.x + _rng.randf_range(-1.0, 1.0)
 		p["z"] = sp.z + _rng.randf_range(-1.0, 1.0)
 		p["yaw"] = atan2(-p["x"], -p["z"])
-		p["color"] = _rng.randi() % 4
+		# Everyone starts white; each player paints during the round.
+		p["color"] = GameState.WHITE
 		p["speed"] = 0.0
 		p["stamina"] = 1.0
 		p["hide"] = 0.0

@@ -4,13 +4,17 @@ extends Node
 
 signal settings_changed()
 
+# Index 4 is the clean, unpainted look every player starts with. The first
+# four colors are the paints that match the props in the arena.
 const PALETTE := [
 	Color(0.10, 0.90, 1.00), # 0 CYAN
 	Color(1.00, 0.25, 0.62), # 1 PINK
 	Color(1.00, 0.78, 0.15), # 2 GOLD
 	Color(0.42, 1.00, 0.35), # 3 LIME
+	Color(0.94, 0.94, 0.96), # 4 WHITE (unpainted)
 ]
-const COLOR_NAMES := ["CYAN", "PINK", "GOLD", "LIME"]
+const COLOR_NAMES := ["CYAN", "PINK", "GOLD", "LIME", "WHITE"]
+const WHITE: int = 4
 const MAP_NAMES := ["NEON ALLEY", "SUNSET CANYON", "FROZEN VAULT"]
 const SAVE_PATH := "user://chroma_chameleon.cfg"
 

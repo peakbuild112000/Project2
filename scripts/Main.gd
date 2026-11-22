@@ -15,8 +15,9 @@ var local_pos: Vector3 = Vector3.ZERO
 var local_yaw: float = 0.0
 var local_speed: float = 0.0
 var stamina: float = 1.0
-var color_index: int = 0
+var color_index: int = GameState.WHITE
 var flashlight: bool = false
+var pointer_dir: Vector2 = Vector2.ZERO
 var map_choice: int = 0
 
 var _ui: CanvasLayer
@@ -37,7 +38,7 @@ var _results_text: Label
 var _match_text: Label
 var _map_text: Label
 var _keys: Dictionary = {}
-var _send_timer: float = 0.0
+var _state_send_timer: float = 0.0
 var _shake: float = 0.0
 var _prev_screen: int = Screen.MENU
 var _debug_print: bool = false
@@ -49,6 +50,8 @@ func _ready() -> void:
 	add_child(arena)
 	add_child(hud)
 	hud.setup(director)
+	hud.paint_selected.connect(_on_paint_selected)
+	hud.move_input.connect(_on_move_input)
 
 	camera = Camera3D.new()
 	camera.fov = 62.0
@@ -86,6 +89,9 @@ func _ready() -> void:
 		_pass_edit.text = "TEST12"
 		_url_edit.text = "ws://127.0.0.1:9080"
 		call_deferred("_auto_join_delayed")
+	elif args.has("--test-movement"):
+		_on_practice()
+		call_deferred("_run_movement_test")
 
 
 func _auto_join_delayed() -> void:
@@ -96,6 +102,17 @@ func _auto_join_delayed() -> void:
 func _auto_start_round() -> void:
 	director.start_round()
 	print("SMOKE: phase=", director.phase, " players=", director.players.size(), " hunter=", director.hunter_id)
+
+
+# Small headless check: prove that the movement math and the white default
+# still work after any refactor. It is only used by the command-line test.
+func _run_movement_test() -> void:
+	director.start_round()
+	var start: Vector3 = local_pos
+	for i in 12:
+		_apply_movement(1.0 / 60.0, Vector2.RIGHT, false)
+	var distance: float = start.distance_to(local_pos)
+	print("MOVE: distance=", roundf(distance * 100.0) / 100.0, " color=", color_index)
 
 
 func _refill_fields() -> void:
@@ -175,6 +192,8 @@ func _build_ui() -> void:
 	add_child(_ui)
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	# Menu panels still take clicks; empty space lets the game see the mouse.
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_ui.add_child(root)
 
 	# Main menu
@@ -307,8 +326,8 @@ func _on_connection_failed(reason: String) -> void:
 	director.setup_client()
 
 
-func _on_peer_connected(_id: int) -> void:
-	pass
+func _on_peer_connected(id: int) -> void:
+	hud.show_banner("PLAYER %d CONNECTED" % id, Color(0.4, 1, 0.7))
 
 
 func _on_peer_disconnected(id: int) -> void:
@@ -349,9 +368,10 @@ func _on_round_started() -> void:
 	local_speed = 0.0
 	stamina = 1.0
 	flashlight = false
+	pointer_dir = Vector2.ZERO
 	map_choice = director.map_index
 	var me: Dictionary = director.local_state()
-	color_index = int(me.get("color", 0))
+	color_index = int(me.get("color", GameState.WHITE))
 	for id in avatars.keys():
 		avatars[id].queue_free()
 	avatars.clear()
@@ -524,49 +544,68 @@ func _process(delta: float) -> void:
 
 
 func _update_local(delta: float) -> void:
-	var ix: float = 0.0
-	var iz: float = 0.0
-	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT): ix -= 1.0
-	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT): ix += 1.0
-	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP): iz -= 1.0
-	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN): iz += 1.0
-	var dir := Vector2(ix, iz)
+	# Keyboard and the on-screen pad can be used at the same time. Adding the
+	# vectors means holding two keys (or two buttons) still gives one speed.
+	var dir: Vector2 = _keyboard_direction() + pointer_dir
 	if dir.length() > 1.0:
 		dir = dir.normalized()
-
 	var sprint: bool = Input.is_key_pressed(KEY_SHIFT) and stamina > 0.05 and dir.length() > 0.0
+	_apply_movement(delta, dir, sprint)
+	_handle_action_keys()
+
+
+func _keyboard_direction() -> Vector2:
+	var x: float = 0.0
+	var z: float = 0.0
+	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT): x -= 1.0
+	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT): x += 1.0
+	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP): z -= 1.0
+	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN): z += 1.0
+	return Vector2(x, z)
+
+
+func _apply_movement(delta: float, dir: Vector2, sprint: bool) -> void:
+	var moving: bool = dir.length() > 0.01
 	var base: float = 4.5 if director.role == "hider" else 4.2
 	var speed: float = base * (1.55 if sprint else 1.0)
 	if sprint:
 		stamina = maxf(0.0, stamina - delta * 0.3)
 	else:
 		stamina = minf(1.0, stamina + delta * 0.2)
-	local_speed = speed if dir.length() > 0.0 else 0.0
 
-	var step: Vector3 = Vector3(dir.x, 0, dir.y) * speed * delta
-	local_pos = arena.move_with_collision(local_pos, step)
-	if dir.length() > 0.0:
+	local_speed = speed if moving else 0.0
+	if moving:
+		local_pos = arena.move_with_collision(local_pos, Vector3(dir.x, 0, dir.y) * speed * delta)
 		local_yaw = atan2(-dir.x, -dir.y)
 
+
+func _handle_action_keys() -> void:
 	if _pressed(KEY_1): _paint(0)
 	if _pressed(KEY_2): _paint(1)
 	if _pressed(KEY_3): _paint(2)
 	if _pressed(KEY_4): _paint(3)
+	if _pressed(KEY_5): _paint(GameState.WHITE)
 	if _pressed(KEY_F) and director.role == "hunter":
 		flashlight = not flashlight
 		AudioManager.play("switch")
 	if _pressed(KEY_E):
 		_try_tag()
 
-	var me: Dictionary = director.local_state()
-	if not me.is_empty():
-		me["stamina"] = stamina
+
+func _on_move_input(direction: Vector2) -> void:
+	pointer_dir = direction
+
+
+func _on_paint_selected(index: int) -> void:
+	_paint(index)
 
 
 func _paint(index: int) -> void:
-	color_index = wrapi(index, 0, 4)
+	color_index = wrapi(index, 0, GameState.PALETTE.size())
 	AudioManager.play("switch", -4.0, 0.9 + randf() * 0.25)
 	_shake = maxf(_shake, 0.08)
+	if avatars.has(Net.local_id):
+		avatars[Net.local_id].paint_splash()
 
 
 func _try_tag() -> void:
@@ -599,14 +638,14 @@ func _check_tag_range() -> void:
 
 
 func _update_net_state(delta: float) -> void:
-	_send_timer -= delta
-	if _send_timer > 0.0:
+	_state_send_timer -= delta
+	if _state_send_timer > 0.0:
 		return
-	_send_timer = 1.0 / 15.0
+	_state_send_timer = 1.0 / 15.0
 	var msg: Dictionary = {
-		"t": "state", "x": sn(local_pos.x), "z": sn(local_pos.z),
-		"yaw": sn(local_yaw), "c": color_index,
-		"sp": sn(local_speed), "st": sn(stamina), "fl": flashlight,
+		"t": "state", "x": round_to(local_pos.x), "z": round_to(local_pos.z),
+		"yaw": round_to(local_yaw), "c": color_index,
+		"sp": round_to(local_speed), "st": round_to(stamina), "fl": flashlight,
 	}
 	if Net.mode == "client":
 		Net.send(msg)
@@ -614,7 +653,7 @@ func _update_net_state(delta: float) -> void:
 		director.update_state(Net.local_id, msg)
 
 
-func sn(v: float) -> float:
+func round_to(v: float) -> float:
 	return roundf(v * 100.0) / 100.0
 
 
@@ -622,7 +661,7 @@ func _update_avatars(delta: float) -> void:
 	for id in director.players.keys():
 		if not avatars.has(id):
 			var p: Dictionary = director.players[id]
-			var av := ChameleonAvatar.new()
+			var av := HumanAvatar.new()
 			av.setup(int(id), str(p["name"]), int(id) == Net.local_id)
 			add_child(av)
 			av.global_position = Vector3(float(p["x"]), 0, float(p["z"]))
@@ -644,7 +683,7 @@ func _update_avatars(delta: float) -> void:
 			p["speed"] = local_speed
 			p["stamina"] = stamina
 			p["alive"] = GameState.alive
-		var av: ChameleonAvatar = avatars[id]
+		var av: HumanAvatar = avatars[id]
 		av.update_visual(delta, p, director.role, Net.local_id, flashlight, camera.global_position)
 
 

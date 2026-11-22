@@ -1,9 +1,10 @@
 # Chroma Chameleon
 
 A simple-3D online hide-and-seek game built with **Godot 4.7.2**. One player is randomly
-chosen as the **Hunter**; everyone else is a **Hider**. Hiders paint themselves in one of
-four colors and try to blend into matching props and scenery. The Hunter uses a flashlight
-and tags them before the timer runs out.
+chosen as the **Hunter**; everyone else is a **Hider**. Every character is a clean white
+human figure at the start of a round. Hiders paint their suit with the mouse to match one
+of four prop colors and try to blend into the scenery. The Hunter uses a flashlight and
+tags them before the timer runs out.
 
 Everything works on separate screens: each player runs the game on their own desktop or in
 their own Web browser tab. There is **no split screen**. The host PC is the server.
@@ -19,7 +20,9 @@ their own Web browser tab. There is **no split screen**. The host PC is the serv
   A well-camouflaged hider becomes almost invisible to the Hunter until the flashlight is on
   or the Hunter gets very close.
 - Hunter flashlight (`F`) and tag (`E` / right mouse button).
-- Sprint with stamina, low-poly chameleon avatars, neon lighting, procedural sound effects.
+- Mouse-driven painting: click a color swatch in the HUD. The move pad also lets you walk
+  with the mouse if the keyboard is not focused.
+- Sprint with stamina, low-poly human avatars, neon lighting, procedural sound effects.
 - Password-protected sessions. Web clients connect over `wss://` through a tunnel.
 - Offline **Practice** mode with bots uses the exact same match rules.
 
@@ -48,9 +51,9 @@ The main menu offers:
 
 | Key | Action |
 |---|---|
-| `WASD` / arrows | Move |
+| `WASD` / arrows or the on-screen pad | Move |
 | `Shift` | Sprint (uses stamina) |
-| `1` - `4` or mouse wheel | Paint yourself cyan / pink / gold / lime |
+| Click a color swatch (`1` - `5` also work) | Paint yourself cyan / pink / gold / lime, or back to white |
 | `F` | Toggle flashlight (Hunter only) |
 | `E` or right click | Tag a nearby hider (Hunter only) |
 | `Esc` | Pause / resume / leave match |
@@ -109,8 +112,9 @@ Export templates for 4.7.2 are required. Once installed, use the included
   & "C:\path\to\Godot_v4.7.2-stable_win64_console.exe" --headless --path . --export-release Web docs/index.html
   ```
 
-The `docs/` folder is served by GitHub Pages. Commit the generated files (`.wasm`, `.pck`,
-`.js`, `.html`, `.png`, `.ico`, `.json`) together with the source so the demo is live.
+The `docs/` folder is served by GitHub Pages. Pushing to `main` runs
+`.github/workflows/deploy-web.yml`, which exports the Web build and deploys it to Pages
+automatically; no generated files are committed to the repository.
 
 ## Headless checks
 
@@ -132,6 +136,12 @@ $tool = "$env:LOCALAPPDATA\OpenCodeTools\godot\Godot_v4.7.2-stable_win64_console
 Expected output includes `SMOKE: phase=playing players=4 ...`, `welcome`, `AUTHENTICATED`
 and `CHAMELEON JOINED`.
 
+```powershell
+# Movement and white-default check
+& $tool --headless --path . --quit-after 200 -- --test-movement
+# Expected: a distance around 0.8-0.9 and color=4
+```
+
 ## Project layout
 
 ```
@@ -144,8 +154,8 @@ Project2/
     MatchDirector.gd       Authoritative lobby, rounds, scoring, tag rules
     Arena.gd               Builds the textured 3D maps
     ArenaData.gd           Deterministic seed-based layouts
-    Player.gd              Low-poly chameleon avatar and camouflage fade
-    HUD.gd                 Overlay (role, timer, score, camo meter, roster)
+    Player.gd              Low-poly human avatar, paint color and camouflage fade
+    HUD.gd                 Overlay, clickable paint swatches and mouse move pad
     GameState.gd           Saved profile/settings
     AudioManager.gd        Procedural WAV playback
   assets/audio/            Generated WAV sound effects and music loop
@@ -157,7 +167,6 @@ Project2/
 
 ## Notes
 
-- The editor plugin `godot_super-wakatime` is present but disabled in `project.godot` so it
-  does not pop up an API-key dialog when you open the project. Re-enable it in
-  **Project → Project Settings → Plugins** if you use Wakatime.
+- The editor plugin `godot_super-wakatime` is present. Its entry point returns early in
+  headless builds and in GitHub Actions, so CI and tests never show an API-key dialog.
 - All source and documentation are in English; generated assets are original and local.

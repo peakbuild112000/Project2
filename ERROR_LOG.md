@@ -99,3 +99,29 @@ were fixed. Kept in English like the rest of the documentation.
 - **Fix:** Corrected and reran the check; all 16 generated assets passed validation. The
   generator scripts themselves were never affected.
 - **Status:** Resolved / informational.
+
+## 12. Movement felt broken when the keyboard focus was outside the game
+
+- **Symptom:** Pressing WASD did nothing after clicking a menu field or a browser toolbar.
+- **Cause:** The full-screen UI `Control` layers swallowed mouse events, and keyboard focus
+  can stay on a `LineEdit` after a menu is hidden. The movement math itself was correct.
+- **Fix:** Split input reading from movement in `Main.gd` (`_keyboard_direction()` and
+  `_apply_movement()`), set the UI roots to `MOUSE_FILTER_IGNORE`, and add a mouse move pad
+  in the HUD. `Input.is_key_pressed()` still works as a fallback.
+- **Verification:** New `--test-movement` headless flag prints a non-zero distance and the
+  white default color.
+- **Status:** Resolved.
+
+## 13. Characters were chameleons with pre-assigned colors
+
+- **Symptom:** Avatars had a tail and started in one of four random colors.
+- **Fix:** Rewrote `Player.gd` as a low-poly human figure (head, arms, legs, shoes) and added
+  `GameState.WHITE` as paint index 4. `MatchDirector` now spawns every player white.
+- **Status:** Resolved.
+
+## 14. Paint swatches were only decorative
+
+- **Symptom:** The four color boxes in the HUD were `Panel` nodes and could not be clicked.
+- **Fix:** Replaced them with real `Button` nodes that emit `paint_selected`, connected to
+  `Main._on_paint_selected()`. Added a white swatch to wipe the paint off.
+- **Status:** Resolved.
