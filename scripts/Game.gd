@@ -9,6 +9,11 @@ const SPEED := 6.2
 const SPRINT_SPEED := 9.6
 const GRAVITY := 19.0
 const JUMP_SPEED := 6.4
+const WALL_CLIMB_SPEED := 4.2
+const WALL_SLIDE_SPEED := 3.0
+const WALL_STICK := 1.6
+const WALL_JUMP_UP := 6.8
+const WALL_JUMP_PUSH := 5.5
 const TICK := 1.0 / 15.0
 
 var hud
@@ -114,7 +119,7 @@ func _on_ui(action: String, value: int) -> void:
 	match action:
 		"host": start_host()
 		"join": start_client()
-		"help": hud.set_menu_info("HIDERS: you are always in third person. Press P for PAINT mode: left-drag paints, right-drag orbits the camera only (the character does not turn), mouse wheel zooms, pipette samples a colour. Stand still near matching props to camouflage. SEEKERS: you are in first person. F toggles the flashlight. Spotting or shooting a hider eliminates them instantly.")
+		"help": hud.set_menu_info("MOVE: WASD (ZQSD on AZERTY), Shift sprints, Space jumps. Touch a wall in mid-air to grab it: W/S climbs, A/D slides, Space jumps off. HIDERS: always third person. P opens PAINT mode: left-drag paints, right-drag orbits the camera only, wheel zooms, pipette samples a colour. Stand still near matching props to camouflage. SEEKERS: first person, F toggles the flashlight. Spotting or shooting a hider eliminates them instantly.")
 		"paint": try_preset_paint(value)
 		"pipette": _toggle_pipette()
 		"leave": leave_match()
@@ -195,6 +200,7 @@ func _create_player(id: int, pname: String) -> void:
 		"id": id, "name": pname, "x": body.position.x, "y": body.position.y,
 		"z": body.position.z, "yaw": 0.0, "color": Color.WHITE, "flash": false,
 		"camo": 0.0, "seen": false, "was_seen": false, "found": false,
+		"wall_grab": false,
 		"input": {"fw": 0.0, "sd": 0.0, "sprint": false, "jump": false},
 	}
 
@@ -690,22 +696,62 @@ func _simulate(delta: float) -> void:
 		var body: CharacterBody3D = views[id].body
 		if st.found and logic.phase != "hiding":
 			body.velocity = Vector3.ZERO
+			st.wall_grab = false
 			continue
 		var inp: Dictionary = st.input
-		var yaw := float(st.yaw)
-		var fwd := Vector3(-sin(yaw), 0, -cos(yaw))
-		var right := Vector3(cos(yaw), 0, -sin(yaw))
-		var move := fwd * float(inp.fw) + right * float(inp.sd)
-		if move.length() > 1.0:
-			move = move.normalized()
-		var speed := SPRINT_SPEED if inp.sprint else SPEED
-		body.velocity.x = move.x * speed
-		body.velocity.z = move.z * speed
-		if bool(inp.jump) and body.is_on_floor():
+		var want_jump := bool(inp.jump)
+		inp.jump = false
+		var grabbing := bool(st.wall_grab)
+		var on_floor := body.is_on_floor()
+		var on_wall := body.is_on_wall()
+		var wall_n := body.get_wall_normal()
+		var wall_jumped := false
+
+		# A wall jump pushes away from the surface and back upward.
+		if grabbing and want_jump:
+			body.velocity.y = WALL_JUMP_UP
+			body.velocity.x = wall_n.x * WALL_JUMP_PUSH
+			body.velocity.z = wall_n.z * WALL_JUMP_PUSH
+			grabbing = false
+			want_jump = false
+			on_wall = false # do not re-grab on the same frame we leap off
+			wall_jumped = true
+		elif want_jump and on_floor:
 			body.velocity.y = JUMP_SPEED
 			_play("step")
-		inp.jump = false
-		body.velocity.y -= GRAVITY * delta
+			want_jump = false
+
+		# Airborne contact with a wall grabs automatically. No extra key.
+		if not grabbing and not on_floor and on_wall and wall_n.length_squared() > 0.1:
+			grabbing = true
+
+		if grabbing:
+			# Forward/back climbs the wall, left/right slides along it.
+			var climb := float(inp.fw)
+			body.velocity.y = climb * WALL_CLIMB_SPEED if absf(climb) > 0.1 else -0.6
+			var tangent := Vector3(-wall_n.z, 0, wall_n.x)
+			var slide := float(inp.sd) * WALL_SLIDE_SPEED
+			body.velocity.x = tangent.x * slide - wall_n.x * WALL_STICK
+			body.velocity.z = tangent.z * slide - wall_n.z * WALL_STICK
+			# Reaching the top, the floor, or the end of the wall lets go.
+			if on_floor or not on_wall:
+				grabbing = false
+				body.velocity.y = maxf(body.velocity.y, 0.0)
+		else:
+			var yaw := float(st.yaw)
+			var fwd := Vector3(-sin(yaw), 0, -cos(yaw))
+			var right := Vector3(cos(yaw), 0, -sin(yaw))
+			var move := fwd * float(inp.fw) + right * float(inp.sd)
+			if move.length() > 1.0:
+				move = move.normalized()
+			var speed := SPRINT_SPEED if inp.sprint else SPEED
+			# Keep the wall-jump push for this frame; normal input resumes next.
+			if not wall_jumped:
+				body.velocity.x = move.x * speed
+				body.velocity.z = move.z * speed
+			body.velocity.y -= GRAVITY * delta
+
+		st.wall_grab = grabbing
 		body.move_and_slide()
 		st.x = body.position.x
 		st.y = body.position.y
@@ -713,6 +759,7 @@ func _simulate(delta: float) -> void:
 		if absf(st.x) > 26.0 or absf(st.z) > 26.0 or st.y < -3.0:
 			body.position = world.spawn(int(id) % 8)
 			body.velocity = Vector3.ZERO
+			st.wall_grab = false
 
 func _update_camo() -> void:
 	var hunter: Dictionary = players.get(logic.hunter_id, {})
@@ -760,6 +807,7 @@ func _after_new_round() -> void:
 		st.flash = false
 		st.seen = false
 		st.was_seen = false
+		st.wall_grab = false
 		_apply_fill(int(id), Color.WHITE)
 		var body: CharacterBody3D = views[id].body
 		body.position = world.spawn(int(id) % 8)
@@ -914,7 +962,7 @@ func _process(delta: float) -> void:
 			me.input = {
 				"fw": 0.0 if frozen else _fw_axis(),
 				"sd": 0.0 if frozen else _sd_axis(),
-				"sprint": not frozen and _key_down(KEY_SHIFT), "jump": _my_input.jump,
+				"sprint": not frozen and _key_down(KEY_SHIFT), "jump": false if frozen else _my_input.jump,
 			}
 			me.yaw = _yaw
 			_my_input.jump = false
@@ -941,7 +989,7 @@ func _process(delta: float) -> void:
 				"t": "input", "fw": 0.0 if frozen else _fw_axis(),
 				"sd": 0.0 if frozen else _sd_axis(),
 				"sprint": not frozen and _key_down(KEY_SHIFT),
-				"jump": _my_input.jump, "yaw": _yaw,
+				"jump": false if frozen else _my_input.jump, "yaw": _yaw,
 			})
 			_my_input.jump = false
 
@@ -992,6 +1040,7 @@ func _input(event: InputEvent) -> void:
 			KEY_4: try_preset_paint(3)
 			KEY_5: try_preset_paint(4)
 			KEY_P: _set_paint_mode(not paint_mode)
+			KEY_SPACE: _my_input.jump = not paint_mode
 			KEY_F: try_flash()
 			KEY_E: _try_shoot()
 			KEY_ESCAPE:

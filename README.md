@@ -48,6 +48,10 @@ There are 3 rounds on 3 deterministic generated maps.
 | `WASD` | Move (physical keys: `ZQSD` on AZERTY also works) |
 | Arrow keys | Look (orbit the camera in PAINT mode) |
 | `Shift` | Sprint |
+| `Space` | Jump; jump again while hanging on a wall to leap off |
+| `W` / `S` on a wall | Climb up / down while hanging |
+| `A` / `D` on a wall | Slide sideways while hanging |
+| Airborne + wall | Grab automatically; hold forward to climb, jump to leap off |
 | `Mouse` | Look (cursor captured outside PAINT mode) |
 | `Right-drag + mouse` | Orbit the camera only, no character turn (Hider, PAINT mode only) |
 | `Mouse wheel` | Zoom (Hider, PAINT mode only) |
