@@ -141,16 +141,47 @@ func make_avatar(parent: Node3D, color: Color, owner_id: int) -> Dictionary:
 	mat.metallic = 0.0
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 
-	_part(holder, BoxMesh.new(), Vector3(0.62, 0.78, 0.34), Vector3(0, 1.05, 0), mat, owner_id, 0)
-	_part(holder, SphereMesh.new(), Vector3(0.42, 0.42, 0.42), Vector3(0, 1.68, 0), mat, owner_id, 1)
-	_part(holder, BoxMesh.new(), Vector3(0.18, 0.66, 0.18), Vector3(-0.42, 1.02, 0), mat, owner_id, 2)
-	_part(holder, BoxMesh.new(), Vector3(0.18, 0.66, 0.18), Vector3(0.42, 1.02, 0), mat, owner_id, 3)
-	_part(holder, BoxMesh.new(), Vector3(0.22, 0.66, 0.22), Vector3(-0.17, 0.34, 0), mat, owner_id, 4)
-	_part(holder, BoxMesh.new(), Vector3(0.22, 0.66, 0.22), Vector3(0.17, 0.34, 0), mat, owner_id, 5)
+	var parts: Array = []
+	parts.append(_part(holder, BoxMesh.new(), Vector3(0.62, 0.78, 0.34), Vector3(0, 1.05, 0), mat, owner_id, 0))
+	parts.append(_part(holder, SphereMesh.new(), Vector3(0.42, 0.42, 0.42), Vector3(0, 1.68, 0), mat, owner_id, 1))
+	parts.append(_part(holder, BoxMesh.new(), Vector3(0.18, 0.66, 0.18), Vector3(-0.42, 1.02, 0), mat, owner_id, 2))
+	parts.append(_part(holder, BoxMesh.new(), Vector3(0.18, 0.66, 0.18), Vector3(0.42, 1.02, 0), mat, owner_id, 3))
+	parts.append(_part(holder, BoxMesh.new(), Vector3(0.22, 0.66, 0.22), Vector3(-0.17, 0.34, 0), mat, owner_id, 4))
+	parts.append(_part(holder, BoxMesh.new(), Vector3(0.22, 0.66, 0.22), Vector3(0.17, 0.34, 0), mat, owner_id, 5))
 
-	return {"node": holder, "mat": mat, "image": img, "texture": tex}
+	return {"node": holder, "mat": mat, "image": img, "texture": tex,
+		"parts": parts, "pose": "none"}
 
-func _part(parent: Node3D, src: Mesh, size: Vector3, pos: Vector3, mat: Material, owner_id: int, part_index: int) -> void:
+## Applies a visual pose to an avatar. Poses are cosmetic only: the invisible
+## paint colliders keep their original transforms so painting still lands on
+## the right atlas cell.
+func set_pose(av: Dictionary, pose: String) -> void:
+	if av.get("pose", "none") == pose:
+		return
+	av.pose = pose
+	var node: Node3D = av.node
+	var parts: Array = av.get("parts", [])
+	node.rotation = Vector3.ZERO
+	node.scale = Vector3.ONE
+	node.position = Vector3.ZERO
+	for p in parts:
+		p.rotation = Vector3.ZERO
+		p.scale = Vector3.ONE
+	match pose:
+		"flat":
+			node.scale = Vector3(1.45, 0.12, 1.45)
+			node.position.y = -0.62
+		"ball":
+			node.scale = Vector3(0.80, 0.58, 0.80)
+			node.position.y = -0.26
+		"tall":
+			node.scale = Vector3(0.68, 1.35, 0.68)
+			node.position.y = 0.12
+		"wave":
+			if parts.size() > 3:
+				parts[3].rotation.z = -2.3
+
+func _part(parent: Node3D, src: Mesh, size: Vector3, pos: Vector3, mat: Material, owner_id: int, part_index: int) -> MeshInstance3D:
 	if src is BoxMesh:
 		src.size = size
 	elif src is SphereMesh:
@@ -202,3 +233,4 @@ func _part(parent: Node3D, src: Mesh, size: Vector3, pos: Vector3, mat: Material
 	collider.set_meta("face_uvs", face_uvs)
 	collider.add_child(cs)
 	parent.add_child(collider)
+	return mi

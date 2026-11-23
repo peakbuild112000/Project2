@@ -52,6 +52,8 @@ There are 3 rounds on 3 deterministic generated maps.
 | `W` / `S` on a wall | Climb up / down while hanging |
 | `A` / `D` on a wall | Slide sideways while hanging |
 | Airborne + wall | Grab automatically; hold forward to climb, jump to leap off |
+| Airborne + ceiling | Hang under it and move freely; `Space` drops off |
+| `V` / `B` / `N` / `M` | Emotes: FLAT / BALL / TALL / WAVE (press again to clear) |
 | `Mouse` | Look (cursor captured outside PAINT mode) |
 | `Right-drag + mouse` | Orbit the camera only, no character turn (Hider, PAINT mode only) |
 | `Mouse wheel` | Zoom (Hider, PAINT mode only) |
