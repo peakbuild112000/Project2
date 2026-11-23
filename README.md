@@ -22,6 +22,12 @@ There are 3 rounds on 3 deterministic generated maps.
 ## Painting your character
 
 - **Hiders are always in third person**; the **Seeker stays in first person**.
+- The **Seeker is noticeably larger** than the Hiders and carries a **visible
+  rifle** (both in first person and on the avatar seen by other players).
+- Hold **`C`** as the Seeker to lie **prone** like a soldier in a trench: the
+  hitbox shrinks, movement slows and the camera drops close to the ground.
+- Arenas are **80 × 80** and filled with several prop types: crates, cylinders,
+  low platforms, tall lockers, spheres and thin maze panels.
 - The third-person camera uses a **SpringArm3D**: it retracts in front of walls
   and props instead of clipping through them.
 - Press **`P`** (Hiders only): the cursor is unlocked and the **PAINT** panel
@@ -50,6 +56,7 @@ There are 3 rounds on 3 deterministic generated maps.
 | `WASD` | Move (physical keys: `ZQSD` on AZERTY also works) |
 | Arrow keys | Look (orbit the camera in PAINT mode) |
 | `Shift` | Sprint |
+| Hold `C` | Lie prone (Seeker only): low hitbox, slow movement |
 | `Space` | Jump; jump again while hanging on a wall to leap off |
 | `W` / `S` on a wall | Climb up / down while hanging |
 | `A` / `D` on a wall | Slide sideways while hanging |

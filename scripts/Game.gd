@@ -14,6 +14,9 @@ const WALL_SLIDE_SPEED := 3.0
 const WALL_STICK := 1.6
 const WALL_JUMP_UP := 6.8
 const WALL_JUMP_PUSH := 5.5
+const HUNTER_SCALE := 1.32
+const PRONE_CAP_HEIGHT := 0.62
+const PRONE_SPEED := 2.6
 const TICK := 1.0 / 15.0
 
 var hud
@@ -23,6 +26,7 @@ var scene_root: Node3D
 var camera: Camera3D
 var camera_arm: SpringArm3D
 var flashlight: SpotLight3D
+var view_gun: Node3D
 var audio: AudioStreamPlayer
 
 var mode := "menu" # menu | host | client
@@ -104,6 +108,15 @@ func _ready() -> void:
 	flashlight.visible = false
 	camera.add_child(flashlight)
 
+	# First-person rifle sits under the camera; a separate copy is attached to
+	# the hunter avatar so remote players see the weapon too.
+	var gun_factory := World.new()
+	view_gun = gun_factory.make_gun(camera)
+	view_gun.position = Vector3(0.34, -0.30, -0.72)
+	view_gun.rotation = Vector3(0, -0.08, 0)
+	view_gun.scale = Vector3(0.75, 0.75, 0.75)
+	view_gun.visible = false
+
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	set_process(true)
 
@@ -127,7 +140,7 @@ func _on_ui(action: String, value: int) -> void:
 	match action:
 		"host": start_host()
 		"join": start_client()
-		"help": hud.set_menu_info("MOVE: WASD (ZQSD on AZERTY), Shift sprints, Space jumps. Touch a wall in mid-air to grab it: W/S climbs, A/D slides, Space jumps off. You hang still on a wall or ceiling until you move; Space drops off a ceiling. EMOTES: V flat on the ground, B ball, N tall, M wave; press again to clear. HIDERS: always third person. P opens PAINT mode: left-drag paints, right-drag orbits the camera only, wheel zooms, pipette samples a colour. Stand still near matching props to camouflage. SEEKERS: first person, F toggles the flashlight. Spotting or shooting a hider eliminates them instantly.")
+		"help": hud.set_menu_info("MOVE: WASD (ZQSD on AZERTY), Shift sprints, Space jumps. Touch a wall in mid-air to grab it: W/S climbs, A/D slides, Space jumps off. You hang still on a wall or ceiling until you move; Space drops off a ceiling. EMOTES: V flat on the ground, B ball, N tall, M wave; press again to clear. HIDERS: always third person. P opens PAINT mode: left-drag paints, right-drag orbits the camera only, wheel zooms, pipette samples a colour. Stand still near matching props to camouflage. SEEKERS: larger body with a visible rifle, first person. Hold C to lie prone like a soldier in a trench: slow and low, with a smaller hitbox. F toggles the flashlight. Spotting or shooting a hider eliminates them instantly.")
 		"paint": try_preset_paint(value)
 		"pipette": _toggle_pipette()
 		"leave": leave_match()
@@ -179,6 +192,8 @@ func _cleanup_match() -> void:
 	logic = null
 	_last_phase = ""
 	flashlight.visible = false
+	if view_gun != null:
+		view_gun.visible = false
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
 func _setup_world(map: int) -> void:
@@ -210,13 +225,16 @@ func _create_player(id: int, pname: String) -> void:
 		camera_arm.call("add_excluded_object", body.get_rid())
 	var avatar: Dictionary = world.make_avatar(body, Color.WHITE, id)
 	avatar.node.visible = true
-	views[id] = {"body": body, "avatar": avatar}
+	var gun: Node3D = world.make_gun(avatar.node)
+	gun.position = Vector3(0.34, 1.20, -0.24)
+	gun.visible = false
+	views[id] = {"body": body, "avatar": avatar, "cap": cap, "col": col, "gun": gun}
 	players[id] = {
 		"id": id, "name": pname, "x": body.position.x, "y": body.position.y,
 		"z": body.position.z, "yaw": 0.0, "color": Color.WHITE, "flash": false,
 		"camo": 0.0, "seen": false, "was_seen": false, "found": false,
-		"wall_grab": false, "ceiling_grab": false, "emote": "none",
-		"input": {"fw": 0.0, "sd": 0.0, "sprint": false, "jump": false},
+		"wall_grab": false, "ceiling_grab": false, "emote": "none", "prone": false,
+		"input": {"fw": 0.0, "sd": 0.0, "sprint": false, "jump": false, "prone": false},
 	}
 
 func _capture() -> void:
@@ -346,6 +364,7 @@ func _on_net_message(from_id: int, msg: Dictionary) -> void:
 						"sd": clampf(float(msg.get("sd", 0)), -1, 1),
 						"sprint": bool(msg.get("sprint", false)),
 						"jump": bool(msg.get("jump", false)),
+						"prone": bool(msg.get("prone", false)),
 					}
 					st.yaw = float(msg.get("yaw", 0))
 			"paint_stroke":
@@ -444,6 +463,7 @@ func _apply_snapshot(s: Dictionary) -> void:
 		st.seen = bool(pd.get("seen", false))
 		st.found = bool(pd.get("found", false))
 		st.emote = str(pd.get("em", st.emote))
+		st.prone = bool(pd.get("pr", false))
 	var phase_now: String = str(logic.phase)
 	if phase_now != _last_phase:
 		_on_phase_change(phase_now)
@@ -457,6 +477,7 @@ func _snapshot() -> Dictionary:
 			"id": id, "n": st.name, "x": st.x, "y": st.y, "z": st.z,
 			"yaw": st.yaw, "col": st.color.to_html(false), "flash": st.flash,
 			"camo": st.camo, "seen": st.seen, "found": st.found, "em": st.emote,
+			"pr": st.prone,
 		})
 	var base: Dictionary = logic.snapshot()
 	base["t"] = "snapshot"
@@ -699,7 +720,8 @@ func _resolve_shot(by_id: int) -> void:
 	if logic == null or logic.phase != "seeking" or not players.has(by_id):
 		return
 	var me: Dictionary = players[by_id]
-	var from := Vector3(float(me.x), float(me.y) + 1.6, float(me.z))
+	var eye := 0.52 if bool(me.prone) else 1.62
+	var from := Vector3(float(me.x), float(me.y) + eye * HUNTER_SCALE, float(me.z))
 	var dir: Vector3
 	if by_id == local_id and is_host:
 		dir = -camera.transform.basis.z
@@ -739,10 +761,20 @@ func _simulate(delta: float) -> void:
 			st.ceiling_grab = false
 			continue
 		var inp: Dictionary = st.input
-		var want_jump := bool(inp.jump)
+		# Only the seeker can lie prone. The capsule shrinks to a low profile,
+		# which also lowers the camera and the shot origin.
+		var prone := bool(inp.prone) and _role_of(id) == "SEEKER"
+		st.prone = prone
+		var cap: CapsuleShape3D = views[id].cap
+		var col: CollisionShape3D = views[id].col
+		var target_height := PRONE_CAP_HEIGHT if prone else 1.5
+		if absf(cap.height - target_height) > 0.001:
+			cap.height = target_height
+			col.position.y = target_height * 0.5
+		var want_jump := bool(inp.jump) and not prone
 		inp.jump = false
-		var grabbing := bool(st.wall_grab)
-		var ceiling := bool(st.ceiling_grab)
+		var grabbing := bool(st.wall_grab) and not prone
+		var ceiling := bool(st.ceiling_grab) and not prone
 		var on_floor := body.is_on_floor()
 		var on_wall := body.is_on_wall()
 		var on_ceiling := body.is_on_ceiling()
@@ -770,7 +802,7 @@ func _simulate(delta: float) -> void:
 			want_jump = false
 
 		# Airborne contact grabs automatically: walls and ceilings.
-		if not grabbing and not ceiling and not on_floor:
+		if not prone and not grabbing and not ceiling and not on_floor:
 			if on_wall and wall_n.length_squared() > 0.1:
 				grabbing = true
 			elif on_ceiling:
@@ -796,7 +828,7 @@ func _simulate(delta: float) -> void:
 			var move := fwd * float(inp.fw) + right * float(inp.sd)
 			if move.length() > 1.0:
 				move = move.normalized()
-			var speed := SPRINT_SPEED if inp.sprint else SPEED
+			var speed := PRONE_SPEED if prone else (SPRINT_SPEED if inp.sprint else SPEED)
 			body.velocity.x = move.x * speed
 			body.velocity.z = move.z * speed
 			body.velocity.y = 0.12
@@ -809,7 +841,7 @@ func _simulate(delta: float) -> void:
 			var move := fwd * float(inp.fw) + right * float(inp.sd)
 			if move.length() > 1.0:
 				move = move.normalized()
-			var speed := SPRINT_SPEED if inp.sprint else SPEED
+			var speed := PRONE_SPEED if prone else (SPRINT_SPEED if inp.sprint else SPEED)
 			# Keep the wall-jump push for this frame; normal input resumes next.
 			if not wall_jumped:
 				body.velocity.x = move.x * speed
@@ -822,7 +854,7 @@ func _simulate(delta: float) -> void:
 		st.x = body.position.x
 		st.y = body.position.y
 		st.z = body.position.z
-		if absf(st.x) > 26.0 or absf(st.z) > 26.0 or st.y < -3.0:
+		if absf(st.x) > 38.0 or absf(st.z) > 38.0 or st.y < -3.0:
 			body.position = world.spawn(int(id) % 8)
 			body.velocity = Vector3.ZERO
 			st.wall_grab = false
@@ -877,6 +909,11 @@ func _after_new_round() -> void:
 		st.wall_grab = false
 		st.ceiling_grab = false
 		st.emote = "none"
+		st.prone = false
+		st.input.prone = false
+		var cap: CapsuleShape3D = views[id].cap
+		cap.height = 1.5
+		views[id].col.position.y = cap.height * 0.5
 		_apply_fill(int(id), Color.WHITE)
 		var body: CharacterBody3D = views[id].body
 		body.position = world.spawn(int(id) % 8)
@@ -940,20 +977,30 @@ func _update_views(delta: float) -> void:
 			body.position = body.position.lerp(Vector3(st.x, st.y, st.z), clampf(delta * 12.0, 0, 1))
 		# The character follows the player's yaw, not the PAINT camera orbit.
 		body.rotation.y = float(st.yaw)
+		var role := _role_of(id)
+		# Hunters are visibly larger than hiders. Scaling the body also scales
+		# the capsule and the attached rifle, so collision matches the model.
+		body.scale = Vector3.ONE if role == "HIDER" else Vector3(HUNTER_SCALE, HUNTER_SCALE, HUNTER_SCALE)
 		var avatar: Dictionary = v.avatar
-		avatar.node.visible = (id != local_id) or (_role_of(id) == "HIDER")
+		avatar.node.visible = (id != local_id) or (role == "HIDER")
 		var alpha := 1.0
 		if id != local_id:
-			if local_role == "SEEKER" and _role_of(id) == "HIDER" and not bool(st.seen):
+			if local_role == "SEEKER" and role == "HIDER" and not bool(st.seen):
 				alpha = 0.05
-			elif local_role == "HIDER" and _role_of(id) == "HIDER":
+			elif local_role == "HIDER" and role == "HIDER":
 				alpha = 0.32
 			if bool(st.found):
 				alpha = 0.14
 		avatar.mat.albedo_color = Color(1, 1, 1, alpha)
-		world.set_pose(avatar, str(st.emote))
+		var pose := str(st.emote)
+		if bool(st.prone):
+			pose = "prone"
+		world.set_pose(avatar, pose)
+		var gun: Node3D = v.gun
+		gun.visible = role == "SEEKER"
 	if local_id > 0 and views.has(local_id):
 		var b: CharacterBody3D = views[local_id].body
+		var me: Dictionary = players[local_id]
 		if local_role == "HIDER":
 			# Hiders always see their own avatar from a third-person camera.
 			# In PAINT mode the camera uses its own orbit angles, so orbiting
@@ -973,12 +1020,14 @@ func _update_views(delta: float) -> void:
 		else:
 			# Seekers stay in first person. A zero-length arm keeps the
 			# camera exactly at eye height and disables spring collision.
-			camera_arm.position = b.position + Vector3(0, 1.62, 0)
+			# The hunter is scaled up, and lying prone drops the eye line.
+			var eye := 0.52 if bool(me.prone) else 1.62
+			camera_arm.position = b.position + Vector3(0, eye * HUNTER_SCALE, 0)
 			camera_arm.rotation = Vector3(_pitch, _yaw, 0)
 			camera_arm.spring_length = 0.0
 			camera.rotation = Vector3.ZERO
-		var me: Dictionary = players[local_id]
 		flashlight.visible = bool(me.flash) and local_role == "SEEKER"
+		view_gun.visible = local_role == "SEEKER" and not paint_mode
 
 func _update_hud() -> void:
 	if logic == null or not players.has(local_id):
@@ -989,7 +1038,7 @@ func _update_hud() -> void:
 	if role == "HIDER":
 		detail = "Camouflage %d%%  —  P = paint, stay still near a matching prop" % int(float(st.camo) * 100.0)
 	else:
-		detail = "Flashlight %s  —  spotting or shooting a hider eliminates them instantly" % ("ON" if st.flash else "OFF")
+		detail = "Flashlight %s  —  hold C to lie prone  —  spotting or shooting a hider eliminates instantly" % ("ON" if st.flash else "OFF")
 	if paint_mode:
 		detail = "PAINT  —  colour #%s  •  brush %dpx  •  zoom %.1f  •  pipette %s" % [
 			paint_color.to_html(false), brush_size, paint_zoom, "ON" if pipette_mode else "OFF"]
@@ -1042,6 +1091,7 @@ func _process(delta: float) -> void:
 				"fw": 0.0 if frozen else _fw_axis(),
 				"sd": 0.0 if frozen else _sd_axis(),
 				"sprint": not frozen and _key_down(KEY_SHIFT), "jump": false if frozen else _my_input.jump,
+				"prone": not frozen and _key_down(KEY_C),
 			}
 			me.yaw = _yaw
 			_my_input.jump = false
@@ -1069,6 +1119,7 @@ func _process(delta: float) -> void:
 				"sd": 0.0 if frozen else _sd_axis(),
 				"sprint": not frozen and _key_down(KEY_SHIFT),
 				"jump": false if frozen else _my_input.jump, "yaw": _yaw,
+				"prone": not frozen and _key_down(KEY_C),
 			})
 			_my_input.jump = false
 

@@ -19,41 +19,67 @@ func build(parent: Node3D, map_index: int) -> void:
 	rng.seed = 1000 + map_index * 37
 
 	var floor_mat := Core.material(cfg.floor, Core.texture(11 + map_index, cfg.floor, cfg.accent))
-	floor_mat.set("uv1_scale", Vector3(9, 9, 9))
+	floor_mat.set("uv1_scale", Vector3(14, 14, 14))
 	var wall_mat := Core.material(cfg.wall, Core.texture(31 + map_index, cfg.wall, cfg.accent))
-	wall_mat.set("uv1_scale", Vector3(5, 5, 5))
+	wall_mat.set("uv1_scale", Vector3(8, 8, 8))
 
-	_box(Vector3(0, -0.5, 0), Vector3(52, 1, 52), floor_mat)
-	_box(Vector3(0, 3, -26), Vector3(52, 7, 1), wall_mat)
-	_box(Vector3(0, 3, 26), Vector3(52, 7, 1), wall_mat)
-	_box(Vector3(-26, 3, 0), Vector3(1, 7, 52), wall_mat)
-	_box(Vector3(26, 3, 0), Vector3(1, 7, 52), wall_mat)
+	# Larger arenas give hiders more places to break line of sight.
+	_box(Vector3(0, -0.5, 0), Vector3(80, 1, 80), floor_mat)
+	_box(Vector3(0, 3, -40), Vector3(80, 7, 1), wall_mat)
+	_box(Vector3(0, 3, 40), Vector3(80, 7, 1), wall_mat)
+	_box(Vector3(-40, 3, 0), Vector3(1, 7, 80), wall_mat)
+	_box(Vector3(40, 3, 0), Vector3(1, 7, 80), wall_mat)
 
 	var palette: Array = cfg.props
-	for i in range(30):
+	# Crates: the classic solid hiding block.
+	for i in range(48):
 		var c: int = palette[rng.randi() % palette.size()]
-		var size := rng.randf_range(1.3, 2.8)
-		var pos := Vector3(rng.randf_range(-21, 21), size * 0.5, rng.randf_range(-21, 21))
+		var size := rng.randf_range(1.4, 3.2)
+		var pos := Vector3(rng.randf_range(-32, 32), size * 0.5, rng.randf_range(-32, 32))
 		_box(pos, Vector3(size, size, size), Core.material(Core.COLORS[c]))
 		props.append({"pos": pos, "color": c})
 
-	for i in range(9):
+	# Cylinders: round cover that breaks up the box silhouettes.
+	for i in range(16):
 		var c: int = palette[rng.randi() % palette.size()]
-		var pos := Vector3(rng.randf_range(-19, 19), 2.2, rng.randf_range(-19, 19))
-		_cylinder(pos, 0.85, 4.4, Core.material(Core.COLORS[c]))
+		var pos := Vector3(rng.randf_range(-30, 30), 2.2, rng.randf_range(-30, 30))
+		_cylinder(pos, 0.9, 4.4, Core.material(Core.COLORS[c]))
 		props.append({"pos": pos, "color": c})
 
-	for i in range(5):
+	# Low platforms: a hider can crouch behind these.
+	for i in range(9):
 		var c: int = palette[rng.randi() % palette.size()]
-		var pos := Vector3(rng.randf_range(-16, 16), 1.5, rng.randf_range(-16, 16))
-		_box(pos, Vector3(5.0, 0.6, 2.4), Core.material(Core.COLORS[c]))
+		var pos := Vector3(rng.randf_range(-27, 27), 0.8, rng.randf_range(-27, 27))
+		_box(pos, Vector3(5.6, 0.7, 2.6), Core.material(Core.COLORS[c]))
+		props.append({"pos": pos, "color": c})
+
+	# Tall lockers: narrow vertical cover.
+	for i in range(12):
+		var c: int = palette[rng.randi() % palette.size()]
+		var pos := Vector3(rng.randf_range(-31, 31), 2.35, rng.randf_range(-31, 31))
+		_box(pos, Vector3(1.7, 4.7, 1.7), Core.material(Core.COLORS[c]))
+		props.append({"pos": pos, "color": c})
+
+	# Spheres: a different silhouette again.
+	for i in range(10):
+		var c: int = palette[rng.randi() % palette.size()]
+		var radius := rng.randf_range(1.1, 2.1)
+		var pos := Vector3(rng.randf_range(-30, 30), radius, rng.randf_range(-30, 30))
+		_sphere(pos, radius, Core.material(Core.COLORS[c]))
+		props.append({"pos": pos, "color": c})
+
+	# Thin panels: maze-like partial walls.
+	for i in range(10):
+		var c: int = palette[rng.randi() % palette.size()]
+		var pos := Vector3(rng.randf_range(-29, 29), 1.75, rng.randf_range(-29, 29))
+		_box(pos, Vector3(4.8, 3.5, 0.5), Core.material(Core.COLORS[c]))
 		props.append({"pos": pos, "color": c})
 
 	spawns = [
-		Vector3(-20, 0.05, -20), Vector3(20, 0.05, -20),
-		Vector3(-20, 0.05, 20), Vector3(20, 0.05, 20),
-		Vector3(0, 0.05, -20), Vector3(0, 0.05, 20),
-		Vector3(-20, 0.05, 0), Vector3(20, 0.05, 0),
+		Vector3(-34, 0.05, -34), Vector3(34, 0.05, -34),
+		Vector3(-34, 0.05, 34), Vector3(34, 0.05, 34),
+		Vector3(0, 0.05, -34), Vector3(0, 0.05, 34),
+		Vector3(-34, 0.05, 0), Vector3(34, 0.05, 0),
 	]
 
 func destroy() -> void:
@@ -120,6 +146,45 @@ func _cylinder(pos: Vector3, radius: float, height: float, mat: Material) -> voi
 	body.add_child(mesh)
 	root.add_child(body)
 
+func _sphere(pos: Vector3, radius: float, mat: Material) -> void:
+	var body := StaticBody3D.new()
+	body.position = pos
+	var col := CollisionShape3D.new()
+	var shape := SphereShape3D.new()
+	shape.radius = radius
+	col.shape = shape
+	body.add_child(col)
+	var mesh := MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radius = radius
+	mesh.mesh = sph
+	mesh.material_override = mat
+	body.add_child(mesh)
+	root.add_child(body)
+
+## Simple generated rifle. Used both as a first-person viewmodel and as a
+## prop attached to the hunter's avatar so other players can see it.
+func make_gun(parent: Node3D) -> Node3D:
+	var holder := Node3D.new()
+	parent.add_child(holder)
+	var metal := Core.material(Color(0.08, 0.10, 0.13))
+	var stock := Core.material(Color(0.20, 0.14, 0.09))
+	_gun_part(holder, Vector3(0.13, 0.13, 0.74), Vector3(0, 0, -0.30), metal)
+	_gun_part(holder, Vector3(0.09, 0.09, 0.34), Vector3(0, 0.02, -0.82), metal)
+	_gun_part(holder, Vector3(0.15, 0.22, 0.16), Vector3(0, -0.17, -0.06), stock)
+	_gun_part(holder, Vector3(0.17, 0.10, 0.28), Vector3(0, 0.00, 0.20), stock)
+	_gun_part(holder, Vector3(0.05, 0.05, 0.07), Vector3(0, 0.11, -0.88), metal)
+	return holder
+
+func _gun_part(parent: Node3D, size: Vector3, pos: Vector3, mat: Material) -> void:
+	var mi := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = size
+	mi.mesh = box
+	mi.position = pos
+	mi.material_override = mat
+	parent.add_child(mi)
+
 ## Low-poly human avatar with its own paintable texture.
 ## Each body part owns a distinct cell of a 3x2 UV atlas, so a stroke lands on
 ## the exact spot that was clicked instead of repeating on every limb.
@@ -180,6 +245,10 @@ func set_pose(av: Dictionary, pose: String) -> void:
 		"wave":
 			if parts.size() > 3:
 				parts[3].rotation.z = -2.3
+		"prone":
+			# Belly-down pose: the avatar lies along its local forward axis.
+			node.rotation.x = -PI * 0.5
+			node.position.y = 0.22
 
 func _part(parent: Node3D, src: Mesh, size: Vector3, pos: Vector3, mat: Material, owner_id: int, part_index: int) -> MeshInstance3D:
 	if src is BoxMesh:
