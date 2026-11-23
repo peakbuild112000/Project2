@@ -70,7 +70,7 @@ There are 3 rounds on 3 deterministic generated maps.
 | `1`–`5` | Quick colours (full repaint) |
 | `F` | Flashlight (Seeker) |
 | `Left click` / `E` | Shoot (Seeker) — instant elimination on hit |
-| `Escape` | Pause / resume, or exit PAINT mode |
+| `Escape` | Local pause / resume (the match keeps running for others), or exit PAINT mode |
 | `L` | Leave the match (from pause or PAINT mode) |
 | `Enter` | Start the match in host mode |
 

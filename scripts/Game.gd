@@ -231,7 +231,7 @@ func _create_player(id: int, pname: String) -> void:
 	views[id] = {"body": body, "avatar": avatar, "cap": cap, "col": col, "gun": gun}
 	players[id] = {
 		"id": id, "name": pname, "x": body.position.x, "y": body.position.y,
-		"z": body.position.z, "yaw": 0.0, "color": Color.WHITE, "flash": false,
+		"z": body.position.z, "yaw": 0.0, "pitch": 0.0, "color": Color.WHITE, "flash": false,
 		"camo": 0.0, "seen": false, "was_seen": false, "found": false,
 		"wall_grab": false, "ceiling_grab": false, "emote": "none", "prone": false,
 		"input": {"fw": 0.0, "sd": 0.0, "sprint": false, "jump": false, "prone": false},
@@ -367,6 +367,7 @@ func _on_net_message(from_id: int, msg: Dictionary) -> void:
 						"prone": bool(msg.get("prone", false)),
 					}
 					st.yaw = float(msg.get("yaw", 0))
+					st.pitch = clampf(float(msg.get("pitch", st.pitch)), -1.2, 1.2)
 			"paint_stroke":
 				if players.has(from_id):
 					var c := Color.from_string(str(msg.get("c", "#ffffff")), Color.WHITE)
@@ -724,10 +725,15 @@ func _resolve_shot(by_id: int) -> void:
 	var from := Vector3(float(me.x), float(me.y) + eye * HUNTER_SCALE, float(me.z))
 	var dir: Vector3
 	if by_id == local_id and is_host:
-		dir = -camera.transform.basis.z
+		# The camera is a child of SpringArm3D: use its GLOBAL basis, or the
+		# ray always fires along world -Z no matter where the player looks.
+		dir = -camera.global_transform.basis.z
 	else:
+		# A remote seeker's pitch is part of the input stream. Without it the
+		# server would always fire a flat ray over the hiders' heads.
 		var hy := float(me.yaw)
-		dir = Vector3(-sin(hy), 0, -cos(hy))
+		var py := clampf(float(me.pitch), -1.2, 1.2)
+		dir = Vector3(-sin(hy) * cos(py), sin(py), -cos(hy) * cos(py))
 	var q := PhysicsRayQueryParameters3D.create(from, from + dir.normalized() * 45.0)
 	q.collision_mask = 1
 	q.exclude = [views[by_id].body.get_rid()]
@@ -1055,34 +1061,36 @@ func _update_hud() -> void:
 	})
 
 func _process(delta: float) -> void:
-	if not running or paused:
+	if not running:
 		return
 	_shoot_cooldown = maxf(0.0, _shoot_cooldown - delta)
 
-	# Paint mode keeps the match alive (timers, network) but the painter
-	# stands still so the avatar is easy to hit with the brush.
-	var frozen := paint_mode
+	# PAUSE is local only: the host keeps simulating, timing and replicating the
+	# match so the other players are unaffected. The paused player simply stops
+	# sending input and looking around. Paint mode freezes the painter as well.
+	var frozen := paint_mode or paused
 
-	# Arrow keys follow the same rule: in PAINT mode they orbit the camera,
-	# outside PAINT mode they turn the player's look direction.
-	if paint_mode:
-		if _key_down(KEY_LEFT):
-			_orbit_yaw += 2.0 * delta
-		if _key_down(KEY_RIGHT):
-			_orbit_yaw -= 2.0 * delta
-		if _key_down(KEY_UP):
-			_orbit_pitch = clampf(_orbit_pitch + 1.5 * delta, -0.45, 0.75)
-		if _key_down(KEY_DOWN):
-			_orbit_pitch = clampf(_orbit_pitch - 1.5 * delta, -0.45, 0.75)
-	else:
-		if _key_down(KEY_LEFT):
-			_yaw += 2.0 * delta
-		if _key_down(KEY_RIGHT):
-			_yaw -= 2.0 * delta
-		if _key_down(KEY_UP):
-			_pitch = clampf(_pitch + 1.5 * delta, -1.2, 1.2)
-		if _key_down(KEY_DOWN):
-			_pitch = clampf(_pitch - 1.5 * delta, -1.2, 1.2)
+	if not paused:
+		# Arrow keys follow the same rule: in PAINT mode they orbit the camera,
+		# outside PAINT mode they turn the player's look direction.
+		if paint_mode:
+			if _key_down(KEY_LEFT):
+				_orbit_yaw += 2.0 * delta
+			if _key_down(KEY_RIGHT):
+				_orbit_yaw -= 2.0 * delta
+			if _key_down(KEY_UP):
+				_orbit_pitch = clampf(_orbit_pitch + 1.5 * delta, -0.45, 0.75)
+			if _key_down(KEY_DOWN):
+				_orbit_pitch = clampf(_orbit_pitch - 1.5 * delta, -0.45, 0.75)
+		else:
+			if _key_down(KEY_LEFT):
+				_yaw += 2.0 * delta
+			if _key_down(KEY_RIGHT):
+				_yaw -= 2.0 * delta
+			if _key_down(KEY_UP):
+				_pitch = clampf(_pitch + 1.5 * delta, -1.2, 1.2)
+			if _key_down(KEY_DOWN):
+				_pitch = clampf(_pitch - 1.5 * delta, -1.2, 1.2)
 
 	if is_host:
 		if players.has(local_id):
@@ -1094,6 +1102,7 @@ func _process(delta: float) -> void:
 				"prone": not frozen and _key_down(KEY_C),
 			}
 			me.yaw = _yaw
+			me.pitch = _pitch
 			_my_input.jump = false
 		_simulate(delta)
 		_update_camo()
@@ -1118,7 +1127,8 @@ func _process(delta: float) -> void:
 				"t": "input", "fw": 0.0 if frozen else _fw_axis(),
 				"sd": 0.0 if frozen else _sd_axis(),
 				"sprint": not frozen and _key_down(KEY_SHIFT),
-				"jump": false if frozen else _my_input.jump, "yaw": _yaw,
+				"jump": false if frozen else _my_input.jump,
+				"yaw": _yaw, "pitch": _pitch,
 				"prone": not frozen and _key_down(KEY_C),
 			})
 			_my_input.jump = false
@@ -1162,6 +1172,9 @@ func _input(event: InputEvent) -> void:
 			_keys[k.physical_keycode] = k.pressed
 			code = k.physical_keycode
 		if not k.pressed or k.echo:
+			return
+		# A local pause must not let this player act on the live match.
+		if paused and code != KEY_ESCAPE and code != KEY_L:
 			return
 		match code:
 			KEY_1: try_preset_paint(0)
@@ -1231,7 +1244,7 @@ func _toggle_pause() -> void:
 	paused = not paused
 	if paused:
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
-		hud.show_lobby("PAUSED\nPress ESC to resume. Press L to leave the match.")
+		hud.show_lobby("LOCAL PAUSE\nThe match keeps running for the other players.\nPress ESC to resume. Press L to leave the match.")
 	else:
 		_capture()
 		hud.show_game()
