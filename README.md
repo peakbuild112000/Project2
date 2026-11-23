@@ -22,6 +22,8 @@ There are 3 rounds on 3 deterministic generated maps.
 ## Painting your character
 
 - **Hiders are always in third person**; the **Seeker stays in first person**.
+- The third-person camera uses a **SpringArm3D**: it retracts in front of walls
+  and props instead of clipping through them.
 - Press **`P`** (Hiders only): the cursor is unlocked and the **PAINT** panel
   appears.
 - Pick **any colour** with the HSV/RGB picker (unlimited colours), or use keys

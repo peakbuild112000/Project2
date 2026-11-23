@@ -21,6 +21,7 @@ var world
 var logic
 var scene_root: Node3D
 var camera: Camera3D
+var camera_arm: SpringArm3D
 var flashlight: SpotLight3D
 var audio: AudioStreamPlayer
 
@@ -84,11 +85,18 @@ func _ready() -> void:
 	sun.directional_shadow_max_distance = 90.0
 	scene_root.add_child(sun)
 
+	camera_arm = SpringArm3D.new()
+	camera_arm.rotation_order = EulerOrder.EULER_ORDER_YXZ
+	camera_arm.collision_mask = 1
+	camera_arm.margin = 0.18
+	scene_root.add_child(camera_arm)
+
 	camera = Camera3D.new()
 	camera.fov = 76
 	camera.near = 0.05
 	camera.rotation_order = EulerOrder.EULER_ORDER_YXZ
-	scene_root.add_child(camera)
+	camera_arm.add_child(camera)
+	camera.position = Vector3.ZERO
 	flashlight = SpotLight3D.new()
 	flashlight.spot_angle = deg_to_rad(30)
 	flashlight.light_energy = 7.0
@@ -191,8 +199,15 @@ func _create_player(id: int, pname: String) -> void:
 	cap.radius = 0.36
 	cap.height = 1.5
 	col.shape = cap
+	# The body origin is at the feet. Lifting the capsule keeps the mesh on
+	# the ground instead of floating one capsule-half above it.
+	col.position.y = cap.height * 0.5
 	body.add_child(col)
 	scene_root.add_child(body)
+	# SpringArm3D casts along its local +Z; exclude this body so the camera
+	# never snaps to the character's own capsule.
+	if camera_arm.has_method("add_excluded_object"):
+		camera_arm.call("add_excluded_object", body.get_rid())
 	var avatar: Dictionary = world.make_avatar(body, Color.WHITE, id)
 	avatar.node.visible = true
 	views[id] = {"body": body, "avatar": avatar}
@@ -946,13 +961,22 @@ func _update_views(delta: float) -> void:
 			var dist := paint_zoom if paint_mode else 4.2
 			var cy := _orbit_yaw if paint_mode else _yaw
 			var cp := clampf(_orbit_pitch if paint_mode else _pitch, -0.45, 0.75)
+			var focus := b.position + Vector3(0, 1.2, 0)
 			var off := Vector3(sin(cy) * cos(cp), sin(cp) + 0.25, cos(cy) * cos(cp)) * dist
-			camera.position = b.position + Vector3(0, 1.1, 0) + off
-			camera.look_at(b.position + Vector3(0, 1.1, 0))
+			# SpringArm3D extends along local +Z, so aim local -Z away from
+			# the desired camera position. The camera keeps zero rotation and
+			# therefore looks back along the arm toward the focus.
+			camera_arm.position = focus
+			camera_arm.look_at(focus - off)
+			camera_arm.spring_length = dist
+			camera.rotation = Vector3.ZERO
 		else:
-			# Seekers stay in first person.
-			camera.position = b.position + Vector3(0, 1.62, 0)
-			camera.rotation = Vector3(_pitch, _yaw, 0)
+			# Seekers stay in first person. A zero-length arm keeps the
+			# camera exactly at eye height and disables spring collision.
+			camera_arm.position = b.position + Vector3(0, 1.62, 0)
+			camera_arm.rotation = Vector3(_pitch, _yaw, 0)
+			camera_arm.spring_length = 0.0
+			camera.rotation = Vector3.ZERO
 		var me: Dictionary = players[local_id]
 		flashlight.visible = bool(me.flash) and local_role == "SEEKER"
 

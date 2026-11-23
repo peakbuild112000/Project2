@@ -50,10 +50,10 @@ func build(parent: Node3D, map_index: int) -> void:
 		props.append({"pos": pos, "color": c})
 
 	spawns = [
-		Vector3(-20, 1, -20), Vector3(20, 1, -20),
-		Vector3(-20, 1, 20), Vector3(20, 1, 20),
-		Vector3(0, 1, -20), Vector3(0, 1, 20),
-		Vector3(-20, 1, 0), Vector3(20, 1, 0),
+		Vector3(-20, 0.05, -20), Vector3(20, 0.05, -20),
+		Vector3(-20, 0.05, 20), Vector3(20, 0.05, 20),
+		Vector3(0, 0.05, -20), Vector3(0, 0.05, 20),
+		Vector3(-20, 0.05, 0), Vector3(20, 0.05, 0),
 	]
 
 func destroy() -> void:
@@ -82,7 +82,7 @@ func camo_at(pos: Vector3, color: Color) -> float:
 
 func spawn(i: int) -> Vector3:
 	if spawns.is_empty():
-		return Vector3(0, 1, 0)
+		return Vector3(0, 0.05, 0)
 	return spawns[i % spawns.size()]
 
 func _box(pos: Vector3, size: Vector3, mat: Material) -> void:
