@@ -28,10 +28,10 @@ var result_label: Label
 var name_edit: LineEdit
 var url_edit: LineEdit
 var port_edit: LineEdit
-var swatches: Array = []
 var paint_panel: Panel
 var color_picker: ColorPickerButton
 var pipette_button: Button
+var shadow_button: Button
 var brush_buttons: Array = []
 var _log_lines: Array = []
 
@@ -177,42 +177,45 @@ func _build_hud() -> void:
 	log_label = _label(hud_group, "", -430, 95, 860, 60, 0.5, 0.5, 16, Color(0.90, 0.93, 1.0))
 	log_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
-	# Quick presets (click = instant full repaint).
-	var palette := _panel(hud_group, -300, 306, 600, 50, 0.5, 0.5)
-	for i in range(Core.COLORS.size()):
-		var b := _button(palette, Core.COLOR_NAMES[i], "paint", i, -282 + i * 113, -14, 104, 30, 0.5, 0.5)
-		var sb := StyleBoxFlat.new()
-		sb.bg_color = Core.COLORS[i]
-		sb.set_corner_radius_all(6)
-		b.add_theme_stylebox_override("normal", sb)
-		swatches.append(b)
-
 	# Unlimited-colour paint panel, shown while PAINT mode is active.
 	paint_panel = _panel(hud_group, -330, 170, 660, 128, 0.5, 0.5, Color(0.03, 0.05, 0.12, 0.95))
-	_label(paint_panel, "PAINT MODE  —  drag on your character", -305, -48, 610, 24, 0.5, 0.5, 17, Color(0.10, 0.85, 0.95))
+	_label(paint_panel, "PAINT MODE  —  drag on your character", -305, -52, 420, 24, 0.5, 0.5, 17, Color(0.10, 0.85, 0.95))
+
+	shadow_button = _button(paint_panel, "Shadow ON", "shadow", 0, 165, -52, 145, 30, 0.5, 0.5)
+	var shsb := StyleBoxFlat.new()
+	shsb.bg_color = Color(0.16, 0.20, 0.32)
+	shsb.set_corner_radius_all(6)
+	shadow_button.add_theme_stylebox_override("normal", shsb)
+
 	color_picker = ColorPickerButton.new()
-	_place(color_picker, -305, -12, 210, 44, 0.5, 0.5)
+	_place(color_picker, -305, -12, 180, 44, 0.5, 0.5)
 	color_picker.color = Color.WHITE
+	color_picker.edit_alpha = false
+	color_picker.edit_intensity = false
+	var picker: ColorPicker = color_picker.get_picker()
+	picker.presets_visible = false
+	picker.can_add_swatches = false
+	picker.color_mode = ColorPicker.MODE_RGB
 	color_picker.color_changed.connect(_on_color_changed)
 	paint_panel.add_child(color_picker)
 
-	pipette_button = _button(paint_panel, "Pipette OFF", "pipette", 0, -70, -12, 120, 44, 0.5, 0.5)
+	pipette_button = _button(paint_panel, "Pipette OFF", "pipette", 0, -105, -12, 110, 44, 0.5, 0.5)
 	var psb := StyleBoxFlat.new()
 	psb.bg_color = Color(0.16, 0.20, 0.32)
 	psb.set_corner_radius_all(6)
 	pipette_button.add_theme_stylebox_override("normal", psb)
 
-	_label(paint_panel, "Brush", 72, -48, 100, 22, 0.5, 0.5, 14, Color(0.75, 0.82, 0.95))
+	_label(paint_panel, "Brush", 15, -48, 80, 22, 0.5, 0.5, 14, Color(0.75, 0.82, 0.95))
 	var names := ["Small", "Medium", "Large"]
 	for i in range(3):
-		var bb := _button(paint_panel, names[i], "brush", i, 72 + i * 78, -12, 72, 44, 0.5, 0.5)
+		var bb := _button(paint_panel, names[i], "brush", i, 15 + i * 78, -12, 72, 44, 0.5, 0.5)
 		var bsb := StyleBoxFlat.new()
 		bsb.bg_color = Color(0.16, 0.20, 0.32) if i != 1 else Color(0.10, 0.85, 0.95, 0.55)
 		bsb.set_corner_radius_all(6)
 		bb.add_theme_stylebox_override("normal", bsb)
 		bb.pressed.connect(_on_brush_pressed.bind(i))
 		brush_buttons.append(bb)
-	_label(paint_panel, "Left-drag: paint  •  Right-drag: orbit camera only  •  Wheel: zoom  •  Pipette: rendered colour (shadows included)  •  P: exit", -305, 42, 610, 24, 0.5, 0.5, 12, Color(0.70, 0.80, 0.95))
+	_label(paint_panel, "Left-drag: paint  •  Right-drag: orbit camera only  •  Wheel: zoom  •  Pipette: surface colour  •  H: shadow  •  P: exit", -305, 42, 610, 24, 0.5, 0.5, 12, Color(0.70, 0.80, 0.95))
 	paint_panel.visible = false
 
 func _build_result() -> void:
@@ -230,6 +233,12 @@ func set_color(c: Color) -> void:
 func set_pipette(on: bool) -> void:
 	pipette_button.text = "Pipette ON" if on else "Pipette OFF"
 	var sb: StyleBoxFlat = pipette_button.get_theme_stylebox("normal")
+	if sb != null:
+		sb.bg_color = Color(0.45, 0.90, 0.25, 0.55) if on else Color(0.16, 0.20, 0.32)
+
+func set_shadow(on: bool) -> void:
+	shadow_button.text = "Shadow ON" if on else "Shadow OFF"
+	var sb: StyleBoxFlat = shadow_button.get_theme_stylebox("normal")
 	if sb != null:
 		sb.bg_color = Color(0.45, 0.90, 0.25, 0.55) if on else Color(0.16, 0.20, 0.32)
 

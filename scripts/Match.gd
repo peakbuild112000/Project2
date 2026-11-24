@@ -2,13 +2,14 @@ extends RefCounted
 ## Authoritative round / role / elimination rules. Pure logic, no engine dependencies.
 ## There is no scoring system: the seeker eliminates hiders, nothing else.
 
-const MAX_ROUNDS := 3
+const MAX_ROUNDS := 4
 const HIDE_SECONDS := 25.0
 const SEEK_SECONDS := 100.0
 const RESULT_SECONDS := 8.0
 
 var ids: Array = []
 var map_index := 0
+var map_count := 1
 var round := 1
 var phase := "menu" # menu | hiding | seeking | round_end | match_end
 var time_left := 0.0
@@ -16,14 +17,16 @@ var hunter_id := -1
 var found := {}
 var rng := RandomNumberGenerator.new()
 
-func setup(player_ids: Array, map: int) -> void:
+func setup(player_ids: Array, map: int, count: int = 1) -> void:
 	ids = player_ids.duplicate()
 	map_index = map
+	map_count = maxi(1, count)
 	round = 1
 	phase = "menu"
 	rng.seed = int(Time.get_unix_time_from_system()) + map + ids.size()
 
 func start_round() -> void:
+	map_index = (round - 1) % map_count
 	found.clear()
 	for id in ids:
 		found[id] = false

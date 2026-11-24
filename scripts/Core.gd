@@ -2,14 +2,15 @@ extends Node
 ## Original, generated-only helpers: palette, maps, procedural textures and sounds.
 ## No external art or audio files are used anywhere in this project.
 
+## Prop palette only. Hider suits start white and can use any colour from the
+## picker; there are no fixed paint presets any more.
 const COLORS = [
 	Color(0.10, 0.85, 0.95), # 0 cyan
 	Color(0.95, 0.25, 0.65), # 1 pink
 	Color(0.98, 0.78, 0.15), # 2 gold
 	Color(0.45, 0.90, 0.25), # 3 lime
-	Color(0.93, 0.93, 0.93), # 4 white (default hider suit)
+	Color(0.93, 0.93, 0.93), # 4 white
 ]
-const COLOR_NAMES = ["Cyan", "Pink", "Gold", "Lime", "White"]
 
 const MAPS = [
 	{
@@ -18,20 +19,36 @@ const MAPS = [
 		"wall": Color(0.09, 0.11, 0.22),
 		"accent": Color(0.10, 0.85, 0.95),
 		"props": [0, 1, 3],
+		"crates": 44, "cylinders": 10, "platforms": 7,
+		"lockers": 16, "spheres": 6, "panels": 20,
 	},
 	{
-		"name": "Sunset Canyon",
-		"floor": Color(0.33, 0.17, 0.10),
-		"wall": Color(0.46, 0.24, 0.13),
-		"accent": Color(0.98, 0.78, 0.15),
+		"name": "Sunset Foundry",
+		"floor": Color(0.30, 0.14, 0.08),
+		"wall": Color(0.42, 0.20, 0.11),
+		"accent": Color(0.98, 0.66, 0.15),
 		"props": [2, 3, 0],
+		"crates": 30, "cylinders": 24, "platforms": 14,
+		"lockers": 8, "spheres": 10, "panels": 8,
 	},
 	{
-		"name": "Frozen Vault",
-		"floor": Color(0.52, 0.66, 0.78),
-		"wall": Color(0.62, 0.76, 0.88),
+		"name": "Glacier Depot",
+		"floor": Color(0.48, 0.62, 0.74),
+		"wall": Color(0.58, 0.72, 0.84),
 		"accent": Color(0.10, 0.85, 0.95),
 		"props": [0, 4, 1],
+		"crates": 52, "cylinders": 12, "platforms": 8,
+		"lockers": 18, "spheres": 8, "panels": 10,
+	},
+	{
+		"name": "Overhead Studio",
+		"floor": Color(0.72, 0.75, 0.80),
+		"wall": Color(0.84, 0.86, 0.90),
+		"accent": Color(1.0, 1.0, 1.0),
+		"props": [4, 2, 0],
+		"crates": 20, "cylinders": 8, "platforms": 12,
+		"lockers": 4, "spheres": 6, "panels": 28,
+		"ceiling_lights": true,
 	},
 ]
 

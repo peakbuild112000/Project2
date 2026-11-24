@@ -17,7 +17,9 @@ near a prop of a similar colour increases camouflage.
 The Seeker uses a flashlight to find Hiders. **Spotting or shooting a Hider
 eliminates them instantly.** There is no scoring system: the Seeker wins by
 eliminating every Hider, and a Hider wins by surviving until the timer ends.
-There are 3 rounds on 3 deterministic generated maps.
+There are 4 rounds, each on a different deterministic generated map. The last
+map, **Overhead Studio**, has strong ceiling lights and bright white panels:
+sample them with the pipette, use the FLAT emote and stay still to blend in.
 
 ## Painting your character
 
@@ -27,13 +29,15 @@ There are 3 rounds on 3 deterministic generated maps.
 - Hold **`C`** as the Seeker to lie **prone** like a soldier in a trench: the
   hitbox shrinks, movement slows and the camera drops close to the ground.
 - Arenas are **80 × 80** and filled with several prop types: crates, cylinders,
-  low platforms, tall lockers, spheres and thin maze panels.
+  low platforms, tall lockers, spheres and thin maze panels. Prop density and
+  colours change per map.
 - The third-person camera uses a **SpringArm3D**: it retracts in front of walls
-  and props instead of clipping through them.
+  and props instead of clipping through them. Its focus and length are smoothed
+  so approaching a wall no longer stutters for joining players.
 - Press **`P`** (Hiders only): the cursor is unlocked and the **PAINT** panel
   appears.
-- Pick **any colour** with the HSV/RGB picker (unlimited colours), or use keys
-  `1`–`5` for quick full-colour presets.
+- Pick **any colour** with the RGB/HSV picker. Fixed paint swatches have been
+  removed; the palette at the bottom of the picker is hidden as well.
 - Choose a brush size: **Small / Medium / Large**. Small is 3 px for fine
   strokes.
 - **Left-drag on your avatar** to paint. The brush raycasts the exact body part
@@ -43,10 +47,11 @@ There are 3 rounds on 3 deterministic generated maps.
   own facing direction and does not turn with the brush view (Hiders in PAINT
   mode only).
 - **Mouse wheel** zooms the camera in and out in PAINT mode.
-- The **Pipette** samples the colour **as rendered on screen**, including
-  lighting and shadows. A red prop in a dark corner gives a dark red, not a
-  bright one. It works on your suit and on the scenery (with a material-colour
-  fallback if screen capture is unavailable).
+- The **Pipette** samples the **surface albedo** under the cursor (painted suit,
+  prop colour or texture pixel), not the lit screen pixel. This avoids applying
+  lighting twice and keeps camouflage predictable.
+- Hiders can toggle their own suit shadow with the **Shadow** button or **`H`**.
+  The choice is synchronized to every player.
 - Press `P` or `Escape` to exit PAINT mode.
 
 ## Controls
@@ -60,14 +65,14 @@ There are 3 rounds on 3 deterministic generated maps.
 | `Space` | Jump; jump again while hanging on a wall to leap off |
 | `W` / `S` on a wall | Climb up / down while hanging |
 | `A` / `D` on a wall | Slide sideways while hanging |
-| Airborne + wall | Grab automatically; hold forward to climb, jump to leap off |
+| Airborne + wall | Grab automatically, face the wall; hold forward to climb, jump to leap off |
 | Airborne + ceiling | Hang under it and move freely; `Space` drops off |
 | `V` / `B` / `N` / `M` | Emotes: FLAT / BALL / TALL / WAVE (press again to clear) |
 | `Mouse` | Look (cursor captured outside PAINT mode) |
 | `Right-drag + mouse` | Orbit the camera only, no character turn (Hider, PAINT mode only) |
 | `Mouse wheel` | Zoom (Hider, PAINT mode only) |
 | `P` | Enter / exit PAINT mode (Hider) |
-| `1`–`5` | Quick colours (full repaint) |
+| `H` | Toggle suit shadow (Hider) |
 | `F` | Flashlight (Seeker) |
 | `Left click` / `E` | Shoot (Seeker) — instant elimination on hit |
 | `Escape` | Local pause / resume (the match keeps running for others), or exit PAINT mode |
@@ -96,8 +101,8 @@ main menu with a dedicated **LOBBY** screen showing the connection status;
 HTTPS. The host presses `Enter` to start. **Only real players are allowed**:
 at least 2 connected players are required, and no bots are ever spawned.
 
-Painted colours and shots are synchronized: the server is authoritative and
-clients only send their intent.
+Painted colours, suit shadows and shots are synchronized: the server is
+authoritative and clients only send their intent.
 
 The **Godot Super-Wakatime** addon (v2.1.0) is installed in `addons/` and enabled
 in `project.godot`. It ignores headless runs and CI.

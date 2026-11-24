@@ -18,6 +18,7 @@ const HUNTER_SCALE := 1.32
 const PRONE_CAP_HEIGHT := 0.62
 const PRONE_SPEED := 2.6
 const TICK := 1.0 / 15.0
+const INPUT_TICK := 1.0 / 30.0
 
 var hud
 var world
@@ -44,7 +45,11 @@ var _keys := {}
 var _yaw := 0.0
 var _pitch := 0.0
 var _net_clock := 0.0
+var _input_clock := 0.0
 var _step_clock := 0.0
+var _cam_focus := Vector3.ZERO
+var _cam_dist := 4.2
+var _cam_ready := false
 var _my_input := {"fw": 0.0, "sd": 0.0, "sprint": false, "jump": false}
 
 # --- painting -------------------------------------------------------------
@@ -140,8 +145,8 @@ func _on_ui(action: String, value: int) -> void:
 	match action:
 		"host": start_host()
 		"join": start_client()
-		"help": hud.set_menu_info("MOVE: WASD (ZQSD on AZERTY), Shift sprints, Space jumps. Touch a wall in mid-air to grab it: W/S climbs, A/D slides, Space jumps off. You hang still on a wall or ceiling until you move; Space drops off a ceiling. EMOTES: V flat on the ground, B ball, N tall, M wave; press again to clear. HIDERS: always third person. P opens PAINT mode: left-drag paints, right-drag orbits the camera only, wheel zooms, pipette samples a colour. Stand still near matching props to camouflage. SEEKERS: larger body with a visible rifle, first person. Hold C to lie prone like a soldier in a trench: slow and low, with a smaller hitbox. F toggles the flashlight. Spotting or shooting a hider eliminates them instantly.")
-		"paint": try_preset_paint(value)
+		"help": hud.set_menu_info("MOVE: WASD (ZQSD on AZERTY), Shift sprints, Space jumps. Touch a wall in mid-air to grab it: your avatar turns to face the wall, W/S climbs, A/D slides, Space jumps off. You hang still on a wall or ceiling until you move; Space drops off a ceiling. EMOTES: V flat on the ground, B ball, N tall, M wave; press again to clear. HIDERS: always third person. P opens PAINT mode: left-drag paints, right-drag orbits the camera only, wheel zooms, pipette samples a surface colour, H toggles your suit shadow. Stand still near matching props to camouflage. SEEKERS: larger body with a visible rifle, first person. Hold C to lie prone like a soldier in a trench: slow and low, with a smaller hitbox. F toggles the flashlight. Spotting or shooting a hider eliminates them instantly.")
+		"shadow": _toggle_shadow()
 		"pipette": _toggle_pipette()
 		"leave": leave_match()
 
@@ -170,6 +175,9 @@ func _cleanup_match() -> void:
 	_orbit_hold = false
 	hud.set_paint_mode(false)
 	hud.set_pipette(false)
+	hud.set_shadow(true)
+	_input_clock = 0.0
+	_cam_ready = false
 	_shoot_cooldown = 0.0
 	if Net.message_received.is_connected(_on_net_message):
 		Net.message_received.disconnect(_on_net_message)
@@ -234,6 +242,8 @@ func _create_player(id: int, pname: String) -> void:
 		"z": body.position.z, "yaw": 0.0, "pitch": 0.0, "color": Color.WHITE, "flash": false,
 		"camo": 0.0, "seen": false, "was_seen": false, "found": false,
 		"wall_grab": false, "ceiling_grab": false, "emote": "none", "prone": false,
+		"shadow": true, "on_wall": false, "on_ceiling": false,
+		"wall_normal": Vector3.ZERO,
 		"input": {"fw": 0.0, "sd": 0.0, "sprint": false, "jump": false, "prone": false},
 	}
 
@@ -261,7 +271,7 @@ func start_host() -> void:
 	Net.peer_disconnected.connect(_on_peer_disconnected)
 	Net.connection_state.connect(_on_connection_state)
 	logic = MatchLogic.new()
-	logic.setup([1], 0)
+	logic.setup([1], 0, Core.MAPS.size())
 	_setup_world(0)
 	_create_player(1, hud.player_name())
 	hud.show_lobby("HOSTING on port %d.\nClients join with ws://<your-ip>:%d\nAt least 2 real players are needed.\nPress ENTER when everyone is in." % [hud.host_port(), hud.host_port()])
@@ -303,14 +313,14 @@ func _begin_host_match() -> void:
 	if logic.ids.size() < 2:
 		hud.set_menu_info("Need at least 2 real players. Wait for another player to join.")
 		return
-	logic.map_index = 0
-	logic.setup(logic.ids.duplicate(), 0)
+	logic.setup(logic.ids.duplicate(), 0, Core.MAPS.size())
 	for id in logic.ids:
 		var st: Dictionary = players.get(id, {})
 		if not st.is_empty():
 			st.color = Color.WHITE
 			_apply_fill(int(id), Color.WHITE)
 	logic.start_round()
+	_setup_world(logic.map_index)
 	running = true
 	print("HOST MATCH STARTED: %s" % str(logic.ids))
 	for id in logic.ids:
@@ -390,6 +400,12 @@ func _on_net_message(from_id: int, msg: Dictionary) -> void:
 					var e := str(msg.get("e", "none"))
 					players[from_id].emote = e
 					Net.broadcast({"t": "emote", "id": from_id, "e": e})
+			"shadow":
+				if players.has(from_id) and _role_of(from_id) == "HIDER":
+					var on := bool(msg.get("on", true))
+					players[from_id].shadow = on
+					world.set_shadow(views[from_id].avatar, on)
+					Net.broadcast({"t": "shadow", "id": from_id, "on": on})
 			"shoot":
 				_resolve_shot(from_id)
 		return
@@ -407,7 +423,7 @@ func _on_net_message(from_id: int, msg: Dictionary) -> void:
 			running = true
 			print("WELCOME: id=%d players=%d map=%d" % [local_id, players.size(), m])
 			logic = MatchLogic.new()
-			logic.setup(ids_raw.duplicate(), m)
+			logic.setup(ids_raw.duplicate(), m, Core.MAPS.size())
 			_apply_snapshot(msg.get("snapshot", {}))
 			hud.show_game()
 			hud.log_line("Connected as %s (id %d)." % [players[local_id].name, local_id])
@@ -431,6 +447,10 @@ func _on_net_message(from_id: int, msg: Dictionary) -> void:
 			var eid := int(msg.get("id", -1))
 			if players.has(eid):
 				players[eid].emote = str(msg.get("e", "none"))
+		"shadow":
+			var sid := int(msg.get("id", -1))
+			if players.has(sid):
+				players[sid].shadow = bool(msg.get("on", true))
 
 func _apply_snapshot(s: Dictionary) -> void:
 	if s.is_empty() or logic == null or not running:
@@ -439,7 +459,10 @@ func _apply_snapshot(s: Dictionary) -> void:
 	logic.time_left = float(s.get("time", logic.time_left))
 	logic.round = int(s.get("round", logic.round))
 	logic.hunter_id = int(s.get("hunter", logic.hunter_id))
-	logic.map_index = int(s.get("map", logic.map_index))
+	var new_map := int(s.get("map", logic.map_index))
+	if new_map != map_index and world != null:
+		_setup_world(new_map)
+	logic.map_index = new_map
 	var fd := {}
 	for k in s.get("found", {}):
 		fd[int(k)] = bool(s.found[k])
@@ -465,6 +488,9 @@ func _apply_snapshot(s: Dictionary) -> void:
 		st.found = bool(pd.get("found", false))
 		st.emote = str(pd.get("em", st.emote))
 		st.prone = bool(pd.get("pr", false))
+		st.wall_grab = bool(pd.get("wg", false))
+		st.ceiling_grab = bool(pd.get("cg", false))
+		st.shadow = bool(pd.get("sh", true))
 	var phase_now: String = str(logic.phase)
 	if phase_now != _last_phase:
 		_on_phase_change(phase_now)
@@ -478,7 +504,8 @@ func _snapshot() -> Dictionary:
 			"id": id, "n": st.name, "x": st.x, "y": st.y, "z": st.z,
 			"yaw": st.yaw, "col": st.color.to_html(false), "flash": st.flash,
 			"camo": st.camo, "seen": st.seen, "found": st.found, "em": st.emote,
-			"pr": st.prone,
+			"pr": st.prone, "wg": st.wall_grab, "cg": st.ceiling_grab,
+			"sh": st.shadow,
 		})
 	var base: Dictionary = logic.snapshot()
 	base["t"] = "snapshot"
@@ -568,22 +595,23 @@ func _apply_fill(id: int, color: Color) -> void:
 	if players.has(id):
 		players[id].color = color
 
-func try_preset_paint(idx: int) -> void:
-	if not running or idx < 0 or idx >= Core.COLORS.size():
+func _toggle_shadow() -> void:
+	if not running or not players.has(local_id):
 		return
 	if _role_of(local_id) != "HIDER":
-		hud.log_line("Only hiders can paint.")
+		hud.log_line("Only hiders can change their shadow.")
 		return
-	var c: Color = Core.COLORS[idx]
-	paint_color = c
-	hud.set_color(c)
-	_apply_fill(local_id, c)
+	var st: Dictionary = players[local_id]
+	var on := not bool(st.shadow)
+	st.shadow = on
+	world.set_shadow(views[local_id].avatar, on)
+	hud.set_shadow(on)
+	hud.log_line("Suit shadow: %s" % ("ON" if on else "OFF"))
+	_play("click")
 	if is_host:
-		Net.broadcast({"t": "paint_fill", "id": local_id, "c": c.to_html(false)})
+		Net.broadcast({"t": "shadow", "id": local_id, "on": on})
 	else:
-		Net.send_to_host({"t": "paint_fill", "c": c.to_html(false)})
-	_play("paint")
-	hud.log_line("Colour: %s" % Core.COLOR_NAMES[idx])
+		Net.send_to_host({"t": "shadow", "on": on})
 
 func _set_paint_mode(on: bool) -> void:
 	if not running:
@@ -620,57 +648,69 @@ func _paint_at(pos: Vector2) -> void:
 		Net.send_to_host({"t": "paint_stroke", "u": u, "v": v,
 			"c": paint_color.to_html(false), "s": brush_size})
 
-## Reads the REAL rendered pixel under the cursor: albedo + lights + shadows.
-## A red prop in a dark corner is therefore sampled as dark red, not bright red.
-func _rendered_color_at(pos: Vector2) -> Color:
-	var tex := get_viewport().get_texture()
-	if tex == null:
-		return Color(-1, -1, -1, 1)
-	var img: Image = tex.get_image()
-	if img == null or img.is_empty():
-		return Color(-1, -1, -1, 1)
-	var size := img.get_size()
-	var vp := get_viewport().get_visible_rect().size
-	if vp.x <= 0.0 or vp.y <= 0.0 or size.x <= 0 or size.y <= 0:
-		return Color(-1, -1, -1, 1)
-	var x := clampi(int(pos.x / vp.x * float(size.x)), 0, size.x - 1)
-	var y := clampi(int(pos.y / vp.y * float(size.y)), 0, size.y - 1)
-	var c := img.get_pixel(x, y)
-	if c.a < 0.01:
-		return Color(-1, -1, -1, 1)
-	return Color(c.r, c.g, c.b, 1.0)
+func _texture_color(tex: Texture, uv: Vector2, fallback: Color) -> Color:
+	if tex is ImageTexture:
+		var img: Image = (tex as ImageTexture).get_image()
+		if img != null and not img.is_empty():
+			var w := img.get_width()
+			var h := img.get_height()
+			if w > 0 and h > 0:
+				var x := clampi(int(clampf(uv.x, 0.0, 1.0) * float(w - 1)), 0, w - 1)
+				var y := clampi(int(clampf(uv.y, 0.0, 1.0) * float(h - 1)), 0, h - 1)
+				return img.get_pixel(x, y)
+	return fallback
+
+## Samples the SURFACE albedo under the cursor, not the final lit framebuffer.
+## Reading lit pixels would apply lighting twice once painted on the suit and
+## made camouflage unreliable; this returns the colour that actually defines
+## the prop, including a texture lookup where one exists.
+func _surface_color_at(pos: Vector2) -> Color:
+	var miss := Color(-1, -1, -1, 1)
+	if hud.paint_panel != null and hud.paint_panel.visible and hud.paint_panel.get_global_rect().has_point(pos):
+		return miss
+
+	var uv := _avatar_uv_at(pos)
+	if uv.x >= 0.0 and views.has(local_id):
+		var img: Image = views[local_id].avatar.image
+		var x := int(clampf(uv.x, 0.0, 1.0) * float(img.get_width() - 1))
+		var y := int(clampf(uv.y, 0.0, 1.0) * float(img.get_height() - 1))
+		var c := img.get_pixel(x, y)
+		return Color(c.r, c.g, c.b, 1.0)
+
+	var from := camera.project_ray_origin(pos)
+	var dir := camera.project_ray_normal(pos)
+	var q := PhysicsRayQueryParameters3D.create(from, from + dir * 100.0)
+	q.collision_mask = 1
+	if views.has(local_id):
+		q.exclude = [views[local_id].body.get_rid()]
+	var hit := get_viewport().world_3d.direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		return miss
+	var col: Object = hit.collider
+	if col is StaticBody3D:
+		var hit_uv := Vector2.ZERO
+		if hit.has("uv"):
+			hit_uv = hit["uv"]
+		for child in col.get_children():
+			if child is MeshInstance3D and child.material_override is StandardMaterial3D:
+				var mat: StandardMaterial3D = child.material_override
+				var c := Color(mat.albedo_color.r, mat.albedo_color.g, mat.albedo_color.b, 1.0)
+				if mat.albedo_texture != null:
+					c = _texture_color(mat.albedo_texture, hit_uv, c)
+				return Color(c.r, c.g, c.b, 1.0)
+	return miss
 
 func _pipette_at(pos: Vector2) -> void:
-	var picked := _rendered_color_at(pos)
-
-	# If the pointer is over the paint panel (or the capture is unavailable),
-	# fall back to the material colour under the ray.
-	if picked.r < 0.0 or (hud.paint_panel != null and hud.paint_panel.visible and hud.paint_panel.get_global_rect().has_point(pos)):
-		var fallback := Color.WHITE
-		var uv := _avatar_uv_at(pos)
-		if uv.x >= 0.0 and views.has(local_id):
-			var img: Image = views[local_id].avatar.image
-			fallback = img.get_pixel(
-				int(clampf(uv.x, 0, 1) * float(img.get_width() - 1)),
-				int(clampf(uv.y, 0, 1) * float(img.get_height() - 1)))
-		else:
-			var from := camera.project_ray_origin(pos)
-			var dir := camera.project_ray_normal(pos)
-			var q := PhysicsRayQueryParameters3D.create(from, from + dir * 100.0)
-			q.collision_mask = 1
-			var hit := get_viewport().world_3d.direct_space_state.intersect_ray(q)
-			if not hit.is_empty() and hit.collider is StaticBody3D:
-				for c in hit.collider.get_children():
-					if c is MeshInstance3D and c.material_override is StandardMaterial3D:
-						fallback = c.material_override.albedo_color
-						break
-		picked = fallback
-
+	var picked := _surface_color_at(pos)
+	if picked.r < 0.0:
+		hud.log_line("Pipette: no surface under the cursor.")
+		_play("click")
+		return
 	paint_color = picked
 	hud.set_color(picked)
 	pipette_mode = false
 	hud.set_pipette(false)
-	hud.log_line("Pipette (lighting and shadows included): #%s" % picked.to_html(false))
+	hud.log_line("Pipette surface colour: #%s" % picked.to_html(false))
 	_play("paint")
 
 # ---------------------------------------------------------------- shooting ----
@@ -782,9 +822,11 @@ func _simulate(delta: float) -> void:
 		var grabbing := bool(st.wall_grab) and not prone
 		var ceiling := bool(st.ceiling_grab) and not prone
 		var on_floor := body.is_on_floor()
-		var on_wall := body.is_on_wall()
-		var on_ceiling := body.is_on_ceiling()
-		var wall_n := body.get_wall_normal()
+		# Collision state is read after the previous move_and_slide(). Querying
+		# it before the move made grabbing/climbing one frame late near walls.
+		var on_wall := bool(st.get("on_wall", false))
+		var on_ceiling := bool(st.get("on_ceiling", false))
+		var wall_n: Vector3 = st.get("wall_normal", Vector3.ZERO)
 		var wall_jumped := false
 
 		# A wall jump pushes away and up; a ceiling jump drops straight down.
@@ -815,6 +857,11 @@ func _simulate(delta: float) -> void:
 				ceiling = true
 
 		if grabbing:
+			# Face the wall while climbing. The wall normal points away from
+			# the surface, so forward (-Z) must point back along -wall_n.
+			if wall_n.length_squared() > 0.1:
+				var face := atan2(wall_n.x, wall_n.z)
+				st.yaw = lerp_angle(float(st.yaw), face, clampf(delta * 14.0, 0.0, 1.0))
 			# No input means hanging perfectly still. W/S climbs, A/D slides.
 			var climb := float(inp.fw)
 			body.velocity.y = climb * WALL_CLIMB_SPEED
@@ -857,6 +904,16 @@ func _simulate(delta: float) -> void:
 		st.wall_grab = grabbing
 		st.ceiling_grab = ceiling
 		body.move_and_slide()
+		# Cache the fresh contact state for the next frame. A wall jump must
+		# not immediately re-grab, so it is deliberately ignored this frame.
+		if wall_jumped:
+			st.on_wall = false
+			st.on_ceiling = false
+			st.wall_normal = Vector3.ZERO
+		else:
+			st.on_wall = body.is_on_wall()
+			st.on_ceiling = body.is_on_ceiling()
+			st.wall_normal = body.get_wall_normal() if st.on_wall else Vector3.ZERO
 		st.x = body.position.x
 		st.y = body.position.y
 		st.z = body.position.z
@@ -865,6 +922,9 @@ func _simulate(delta: float) -> void:
 			body.velocity = Vector3.ZERO
 			st.wall_grab = false
 			st.ceiling_grab = false
+			st.on_wall = false
+			st.on_ceiling = false
+			st.wall_normal = Vector3.ZERO
 
 func _update_camo() -> void:
 	var hunter: Dictionary = players.get(logic.hunter_id, {})
@@ -914,9 +974,13 @@ func _after_new_round() -> void:
 		st.was_seen = false
 		st.wall_grab = false
 		st.ceiling_grab = false
+		st.on_wall = false
+		st.on_ceiling = false
+		st.wall_normal = Vector3.ZERO
 		st.emote = "none"
 		st.prone = false
 		st.input.prone = false
+		world.set_shadow(views[id].avatar, bool(st.shadow))
 		var cap: CapsuleShape3D = views[id].cap
 		cap.height = 1.5
 		views[id].col.position.y = cap.height * 0.5
@@ -926,6 +990,8 @@ func _after_new_round() -> void:
 		body.velocity = Vector3.ZERO
 	paint_color = Color.WHITE
 	hud.set_color(Color.WHITE)
+	hud.set_shadow(bool(players.get(local_id, {}).get("shadow", true)))
+	_cam_ready = false
 	_last_phase = "hiding"
 
 func _on_phase_change(phase: String) -> void:
@@ -935,10 +1001,12 @@ func _on_phase_change(phase: String) -> void:
 			# Clients receive the new round as phase "hiding", not as the
 			# host-only "new_round" event. Reset visuals and close the result
 			# panel here too, otherwise the client stays stuck on it.
+			if map_index != logic.map_index:
+				_setup_world(logic.map_index)
 			_after_new_round()
 			hud.show_game()
 			if logic.round > 1:
-				hud.log_line("ROUND %d/%d — paint again!" % [logic.round, 3])
+				hud.log_line("ROUND %d/%d — paint again!" % [logic.round, MatchLogic.MAX_ROUNDS])
 		"seeking":
 			hud.log_line("SEEKERS ARE IN! Hide!")
 			_play("flash")
@@ -949,9 +1017,11 @@ func _on_phase_change(phase: String) -> void:
 			if paint_mode:
 				_set_paint_mode(false)
 		"new_round":
+			if map_index != logic.map_index:
+				_setup_world(logic.map_index)
 			_after_new_round()
 			hud.show_game()
-			hud.log_line("ROUND %d/%d — paint again!" % [logic.round, 3])
+			hud.log_line("ROUND %d/%d — paint again!" % [logic.round, MatchLogic.MAX_ROUNDS])
 		"match_end":
 			_show_result()
 			Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
@@ -959,7 +1029,7 @@ func _on_phase_change(phase: String) -> void:
 func _show_result() -> void:
 	if logic == null:
 		return
-	var text := "ROUND %d / %d  —  %s\n\n" % [logic.round, 3, Core.MAPS[logic.map_index].name]
+	var text := "ROUND %d / %d  —  %s\n\n" % [logic.round, MatchLogic.MAX_ROUNDS, Core.MAPS[logic.map_index].name]
 	text += "You were %s.\n" % _role_of(local_id)
 	var found_count := 0
 	for k in logic.found:
@@ -977,12 +1047,26 @@ func _update_views(delta: float) -> void:
 		var st: Dictionary = players[id]
 		var v: Dictionary = views[id]
 		var body: CharacterBody3D = v.body
+		var target := Vector3(st.x, st.y, st.z)
 		if not is_host and id == local_id:
-			body.position = Vector3(st.x, st.y, st.z)
+			# Joining hiders used to be snapped to every 15 Hz snapshot, which
+			# looked like a stutter when the SpringArm retracted near a wall.
+			# Interpolate small corrections and snap only on teleports/respawns.
+			if body.position.distance_to(target) > 4.0:
+				body.position = target
+			else:
+				body.position = body.position.lerp(target, clampf(delta * 22.0, 0, 1))
 		elif not is_host:
-			body.position = body.position.lerp(Vector3(st.x, st.y, st.z), clampf(delta * 12.0, 0, 1))
-		# The character follows the player's yaw, not the PAINT camera orbit.
-		body.rotation.y = float(st.yaw)
+			if body.position.distance_to(target) > 8.0:
+				body.position = target
+			else:
+				body.position = body.position.lerp(target, clampf(delta * 14.0, 0, 1))
+		# Use the local look yaw for responsive turning, except while climbing
+		# where the server has turned the avatar to face the wall.
+		var face_yaw := float(st.yaw)
+		if not is_host and id == local_id and not bool(st.wall_grab):
+			face_yaw = _yaw
+		body.rotation.y = face_yaw
 		var role := _role_of(id)
 		# Hunters are visibly larger than hiders. Scaling the body also scales
 		# the capsule and the attached rifle, so collision matches the model.
@@ -1002,34 +1086,48 @@ func _update_views(delta: float) -> void:
 		if bool(st.prone):
 			pose = "prone"
 		world.set_pose(avatar, pose)
+		world.set_shadow(avatar, bool(st.shadow))
 		var gun: Node3D = v.gun
 		gun.visible = role == "SEEKER"
 	if local_id > 0 and views.has(local_id):
 		var b: CharacterBody3D = views[local_id].body
 		var me: Dictionary = players[local_id]
+		# While hanging on a wall the server owns the facing direction.
+		var look_yaw := float(me.yaw) if bool(me.wall_grab) else _yaw
 		if local_role == "HIDER":
 			# Hiders always see their own avatar from a third-person camera.
 			# In PAINT mode the camera uses its own orbit angles, so orbiting
 			# never changes the direction the character is facing.
 			var dist := paint_zoom if paint_mode else 4.2
-			var cy := _orbit_yaw if paint_mode else _yaw
+			var cy := _orbit_yaw if paint_mode else look_yaw
 			var cp := clampf(_orbit_pitch if paint_mode else _pitch, -0.45, 0.75)
 			var focus := b.position + Vector3(0, 1.2, 0)
-			var off := Vector3(sin(cy) * cos(cp), sin(cp) + 0.25, cos(cy) * cos(cp)) * dist
+			# Smooth the arm origin and length as well as the body. Without
+			# this, 15 Hz position steps make the spring retract abruptly at
+			# walls and the joiner sees a visible stutter.
+			if not _cam_ready:
+				_cam_focus = focus
+				_cam_dist = dist
+				_cam_ready = true
+			else:
+				_cam_focus = _cam_focus.lerp(focus, clampf(delta * 18.0, 0, 1))
+				_cam_dist = lerpf(_cam_dist, dist, clampf(delta * 12.0, 0, 1))
+			var off := Vector3(sin(cy) * cos(cp), sin(cp) + 0.25, cos(cy) * cos(cp)) * _cam_dist
 			# SpringArm3D extends along local +Z, so aim local -Z away from
 			# the desired camera position. The camera keeps zero rotation and
 			# therefore looks back along the arm toward the focus.
-			camera_arm.position = focus
-			camera_arm.look_at(focus - off)
-			camera_arm.spring_length = dist
+			camera_arm.position = _cam_focus
+			camera_arm.look_at(_cam_focus - off)
+			camera_arm.spring_length = _cam_dist
 			camera.rotation = Vector3.ZERO
 		else:
 			# Seekers stay in first person. A zero-length arm keeps the
 			# camera exactly at eye height and disables spring collision.
 			# The hunter is scaled up, and lying prone drops the eye line.
+			_cam_ready = false
 			var eye := 0.52 if bool(me.prone) else 1.62
 			camera_arm.position = b.position + Vector3(0, eye * HUNTER_SCALE, 0)
-			camera_arm.rotation = Vector3(_pitch, _yaw, 0)
+			camera_arm.rotation = Vector3(_pitch, look_yaw, 0)
 			camera_arm.spring_length = 0.0
 			camera.rotation = Vector3.ZERO
 		flashlight.visible = bool(me.flash) and local_role == "SEEKER"
@@ -1050,9 +1148,9 @@ func _update_hud() -> void:
 			paint_color.to_html(false), brush_size, paint_zoom, "ON" if pipette_mode else "OFF"]
 	var phase_name := str(logic.phase).to_upper()
 	if logic.phase == "hiding":
-		phase_name = "HIDING  %d/%d" % [logic.round, 3]
+		phase_name = "HIDING  %d/%d" % [logic.round, MatchLogic.MAX_ROUNDS]
 	elif logic.phase == "seeking":
-		phase_name = "SEEKING  %d/%d" % [logic.round, 3]
+		phase_name = "SEEKING  %d/%d" % [logic.round, MatchLogic.MAX_ROUNDS]
 	hud.update_hud({
 		"phase": phase_name,
 		"time": logic.time_left,
@@ -1101,7 +1199,10 @@ func _process(delta: float) -> void:
 				"sprint": not frozen and _key_down(KEY_SHIFT), "jump": false if frozen else _my_input.jump,
 				"prone": not frozen and _key_down(KEY_C),
 			}
-			me.yaw = _yaw
+			# While climbing, _simulate() owns the yaw so the avatar keeps
+			# facing the wall instead of snapping back to the mouse look.
+			if not bool(me.wall_grab):
+				me.yaw = _yaw
 			me.pitch = _pitch
 			_my_input.jump = false
 		_simulate(delta)
@@ -1120,9 +1221,11 @@ func _process(delta: float) -> void:
 			if not st.is_empty() and views[local_id].body.is_on_floor() and Vector2(views[local_id].body.velocity.x, views[local_id].body.velocity.z).length() > 2.0:
 				_play("step")
 	else:
-		_net_clock += delta
-		if _net_clock >= TICK:
-			_net_clock = 0.0
+		# Intent is sent faster than snapshots. The extra 30 Hz input stream
+		# removes the visible delay when a joining hider walks into a wall.
+		_input_clock += delta
+		if _input_clock >= INPUT_TICK:
+			_input_clock = 0.0
 			Net.send_to_host({
 				"t": "input", "fw": 0.0 if frozen else _fw_axis(),
 				"sd": 0.0 if frozen else _sd_axis(),
@@ -1177,11 +1280,7 @@ func _input(event: InputEvent) -> void:
 		if paused and code != KEY_ESCAPE and code != KEY_L:
 			return
 		match code:
-			KEY_1: try_preset_paint(0)
-			KEY_2: try_preset_paint(1)
-			KEY_3: try_preset_paint(2)
-			KEY_4: try_preset_paint(3)
-			KEY_5: try_preset_paint(4)
+			KEY_H: _toggle_shadow()
 			KEY_P: _set_paint_mode(not paint_mode)
 			KEY_SPACE: _my_input.jump = not paint_mode
 			KEY_V: try_emote("flat")

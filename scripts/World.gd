@@ -1,5 +1,5 @@
 extends RefCounted
-## Builds the three original arena layouts from boxes and generated materials.
+## Builds the original arena layouts from boxes and generated materials.
 ## Avatars carry a paintable ImageTexture (unlimited colours, brush strokes).
 
 const AVATAR_TEX := 256
@@ -32,7 +32,7 @@ func build(parent: Node3D, map_index: int) -> void:
 
 	var palette: Array = cfg.props
 	# Crates: the classic solid hiding block.
-	for i in range(48):
+	for i in range(int(cfg.get("crates", 48))):
 		var c: int = palette[rng.randi() % palette.size()]
 		var size := rng.randf_range(1.4, 3.2)
 		var pos := Vector3(rng.randf_range(-32, 32), size * 0.5, rng.randf_range(-32, 32))
@@ -40,28 +40,28 @@ func build(parent: Node3D, map_index: int) -> void:
 		props.append({"pos": pos, "color": c})
 
 	# Cylinders: round cover that breaks up the box silhouettes.
-	for i in range(16):
+	for i in range(int(cfg.get("cylinders", 16))):
 		var c: int = palette[rng.randi() % palette.size()]
 		var pos := Vector3(rng.randf_range(-30, 30), 2.2, rng.randf_range(-30, 30))
 		_cylinder(pos, 0.9, 4.4, Core.material(Core.COLORS[c]))
 		props.append({"pos": pos, "color": c})
 
 	# Low platforms: a hider can crouch behind these.
-	for i in range(9):
+	for i in range(int(cfg.get("platforms", 9))):
 		var c: int = palette[rng.randi() % palette.size()]
 		var pos := Vector3(rng.randf_range(-27, 27), 0.8, rng.randf_range(-27, 27))
 		_box(pos, Vector3(5.6, 0.7, 2.6), Core.material(Core.COLORS[c]))
 		props.append({"pos": pos, "color": c})
 
 	# Tall lockers: narrow vertical cover.
-	for i in range(12):
+	for i in range(int(cfg.get("lockers", 12))):
 		var c: int = palette[rng.randi() % palette.size()]
 		var pos := Vector3(rng.randf_range(-31, 31), 2.35, rng.randf_range(-31, 31))
 		_box(pos, Vector3(1.7, 4.7, 1.7), Core.material(Core.COLORS[c]))
 		props.append({"pos": pos, "color": c})
 
 	# Spheres: a different silhouette again.
-	for i in range(10):
+	for i in range(int(cfg.get("spheres", 10))):
 		var c: int = palette[rng.randi() % palette.size()]
 		var radius := rng.randf_range(1.1, 2.1)
 		var pos := Vector3(rng.randf_range(-30, 30), radius, rng.randf_range(-30, 30))
@@ -69,11 +69,32 @@ func build(parent: Node3D, map_index: int) -> void:
 		props.append({"pos": pos, "color": c})
 
 	# Thin panels: maze-like partial walls.
-	for i in range(10):
+	for i in range(int(cfg.get("panels", 10))):
 		var c: int = palette[rng.randi() % palette.size()]
 		var pos := Vector3(rng.randf_range(-29, 29), 1.75, rng.randf_range(-29, 29))
 		_box(pos, Vector3(4.8, 3.5, 0.5), Core.material(Core.COLORS[c]))
 		props.append({"pos": pos, "color": c})
+
+	# Overhead Studio has a real ceiling, bright emissive panels and strong
+	# downlights. A white suit + the FLAT emote blends into the lit floor.
+	if bool(cfg.get("ceiling_lights", false)):
+		_box(Vector3(0, 6.65, 0), Vector3(80, 0.3, 80), wall_mat)
+		var light_mat := Core.material(Color.WHITE)
+		light_mat.emission_enabled = true
+		light_mat.emission = Color.WHITE
+		light_mat.emission_energy = 3.0
+		for x in [-24, -8, 8, 24]:
+			for z in [-24, -8, 8, 24]:
+				_box(Vector3(x, 6.34, z), Vector3(4.6, 0.12, 4.6), light_mat)
+				var lamp := SpotLight3D.new()
+				lamp.position = Vector3(x, 6.18, z)
+				# Lights shine along local -Z; -90 degrees on X points down.
+				lamp.rotation = Vector3(-PI * 0.5, 0, 0)
+				root.add_child(lamp)
+				lamp.spot_angle = deg_to_rad(68)
+				lamp.spot_range = 24.0
+				lamp.light_energy = 3.4
+				lamp.shadow_enabled = false
 
 	spawns = [
 		Vector3(-34, 0.05, -34), Vector3(34, 0.05, -34),
@@ -88,6 +109,14 @@ func destroy() -> void:
 	root = null
 	props.clear()
 	spawns.clear()
+
+## Per-hider shadow switch. The world sun keeps casting; only this suit opts
+## out. Applied to every mesh part so emotes cannot restore a lost shadow.
+func set_shadow(av: Dictionary, on: bool) -> void:
+	var mode: int = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if on else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	for p in av.get("parts", []):
+		if p is MeshInstance3D:
+			p.cast_shadow = mode
 
 ## How well a hider painted `color` blends at this position (0..1).
 ## Uses real colour distance, so any painted colour can match the decor.
@@ -234,8 +263,9 @@ func set_pose(av: Dictionary, pose: String) -> void:
 		p.scale = Vector3.ONE
 	match pose:
 		"flat":
+			# Lie just above the floor instead of sinking underneath it.
 			node.scale = Vector3(1.45, 0.12, 1.45)
-			node.position.y = -0.62
+			node.position.y = -0.02
 		"ball":
 			node.scale = Vector3(0.80, 0.58, 0.80)
 			node.position.y = -0.26
