@@ -14,9 +14,10 @@ Each round, one player is the **Seeker** and the others are **Hiders**. Hiders
 start with a white suit and must paint it to blend into the maps. Standing still
 near a prop of a similar colour increases camouflage.
 
-The Seeker uses a flashlight to find Hiders. **Spotting or shooting a Hider
-eliminates them instantly.** There is no scoring system: the Seeker wins by
-eliminating every Hider, and a Hider wins by surviving until the timer ends.
+The Seeker uses a flashlight to find Hiders. Spotting a Hider only **reveals**
+them; **a Hider is eliminated exclusively by a successful shot.** There is no
+scoring system: the Seeker wins by shooting every Hider, and a Hider wins by
+surviving until the timer ends.
 There are 4 rounds, each on a different deterministic generated map. The last
 map, **Overhead Studio**, has strong ceiling lights and bright white panels:
 sample them with the pipette, use the FLAT emote and stay still to blend in.

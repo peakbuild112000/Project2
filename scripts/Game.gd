@@ -145,7 +145,7 @@ func _on_ui(action: String, value: int) -> void:
 	match action:
 		"host": start_host()
 		"join": start_client()
-		"help": hud.set_menu_info("MOVE: WASD (ZQSD on AZERTY), Shift sprints, Space jumps. Touch a wall in mid-air to grab it: your avatar turns to face the wall, W/S climbs, A/D slides, Space jumps off. You hang still on a wall or ceiling until you move; Space drops off a ceiling. EMOTES: V flat on the ground, B ball, N tall, M wave; press again to clear. HIDERS: always third person. P opens PAINT mode: left-drag paints, right-drag orbits the camera only, wheel zooms, pipette samples a surface colour, H toggles your suit shadow. Stand still near matching props to camouflage. SEEKERS: larger body with a visible rifle, first person. Hold C to lie prone like a soldier in a trench: slow and low, with a smaller hitbox. F toggles the flashlight. Spotting or shooting a hider eliminates them instantly.")
+		"help": hud.set_menu_info("MOVE: WASD (ZQSD on AZERTY), Shift sprints, Space jumps. Touch a wall in mid-air to grab it: your avatar turns to face the wall, W/S climbs, A/D slides, Space jumps off. You hang still on a wall or ceiling until you move; Space drops off a ceiling. EMOTES: V flat on the ground, B ball, N tall, M wave; press again to clear. HIDERS: always third person. P opens PAINT mode: left-drag paints, right-drag orbits the camera only, wheel zooms, pipette samples a surface colour, H toggles your suit shadow. Stand still near matching props to camouflage. SEEKERS: larger body with a visible rifle, first person. Hold C to lie prone like a soldier in a trench: slow and low, with a smaller hitbox. F toggles the flashlight. Spotting a hider reveals them; only shooting a hider eliminates them instantly.")
 		"shadow": _toggle_shadow()
 		"pipette": _toggle_pipette()
 		"leave": leave_match()
@@ -240,7 +240,7 @@ func _create_player(id: int, pname: String) -> void:
 	players[id] = {
 		"id": id, "name": pname, "x": body.position.x, "y": body.position.y,
 		"z": body.position.z, "yaw": 0.0, "pitch": 0.0, "color": Color.WHITE, "flash": false,
-		"camo": 0.0, "seen": false, "was_seen": false, "found": false,
+		"camo": 0.0, "seen": false, "found": false,
 		"wall_grab": false, "ceiling_grab": false, "emote": "none", "prone": false,
 		"shadow": true, "on_wall": false, "on_ceiling": false,
 		"wall_normal": Vector3.ZERO,
@@ -951,16 +951,8 @@ func _update_camo() -> void:
 					seen = true
 			elif st.camo < 0.45 and d < 10.0:
 				seen = true
-		# Being seen means instant elimination. No scoring is involved.
-		if seen and not bool(st.was_seen):
-			if id != logic.hunter_id and logic.phase == "seeking" and logic.tag(id):
-				var msg := "%s was spotted and eliminated!" % str(players[id].name)
-				hud.log_line(msg)
-				_play("found")
-				Net.broadcast({"t": "event", "msg": msg})
-				if logic.phase == "round_end":
-					_on_phase_change("round_end")
-		st.was_seen = seen
+		# Spotting only reveals the hider (render alpha). A shot is the sole
+		# elimination path; being in view never removes a hider by itself.
 		st.seen = seen
 
 func _after_new_round() -> void:
@@ -971,7 +963,6 @@ func _after_new_round() -> void:
 		st.camo = 0.0
 		st.flash = false
 		st.seen = false
-		st.was_seen = false
 		st.wall_grab = false
 		st.ceiling_grab = false
 		st.on_wall = false
@@ -1142,7 +1133,7 @@ func _update_hud() -> void:
 	if role == "HIDER":
 		detail = "Camouflage %d%%  —  P = paint, stay still near a matching prop" % int(float(st.camo) * 100.0)
 	else:
-		detail = "Flashlight %s  —  hold C to lie prone  —  spotting or shooting a hider eliminates instantly" % ("ON" if st.flash else "OFF")
+		detail = "Flashlight %s  —  hold C to lie prone  —  spotting reveals a hider, only a shot eliminates" % ("ON" if st.flash else "OFF")
 	if paint_mode:
 		detail = "PAINT  —  colour #%s  •  brush %dpx  •  zoom %.1f  •  pipette %s" % [
 			paint_color.to_html(false), brush_size, paint_zoom, "ON" if pipette_mode else "OFF"]

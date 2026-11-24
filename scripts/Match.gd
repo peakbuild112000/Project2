@@ -66,7 +66,7 @@ func all_found() -> bool:
 			return false
 	return true
 
-## Instant elimination. Called when the seeker spots or shoots a hider.
+## Instant elimination. Only called after the seeker actually shoots a hider.
 func tag(hider_id: int) -> bool:
 	if phase != "seeking":
 		return false
